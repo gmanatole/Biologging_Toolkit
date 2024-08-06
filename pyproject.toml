@@ -1,0 +1,16 @@
+[project]
+name = "SES_tags"
+version = "0.0.1"
+authors = [
+  { name="Anatole GROS-MARTIAL", email="grosmartial.anatole@gmail.com" },
+]
+description = "Python package to implement a biologging data workflow"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
