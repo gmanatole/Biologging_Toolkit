@@ -5,6 +5,7 @@ from scipy.signal import firwin, lfilter
 import matplotlib.pyplot as plt
 
 class Bioluminescence:
+
     def __init__(self, recdir, depid, drive):
         self.recdir = recdir
         self.depid = depid
