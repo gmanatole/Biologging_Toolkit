@@ -24,7 +24,6 @@ class Wrapper():
 
 		self.ind = ind
 		self.path = path if path else os.getcwd()
-		self.dt = dt
 		assert isinstance(self.ind, str), "Please specify an individual"
 
 		#Check if individual file already exists, if not create it
