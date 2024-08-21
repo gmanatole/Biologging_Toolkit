@@ -2,12 +2,10 @@ import numpy as np
 import os
 import scipy.signal as sg
 import soundfile as sf
-import pandas as pd
 from tqdm import tqdm
-from scipy.fft import fft, fftfreq, fftshift
 from SES_tags.utils.acoustic_utils import *
 from SES_tags.wrapper import Wrapper
-
+import pdb
 
 class Acoustic(Wrapper):
 	"""
@@ -18,14 +16,14 @@ class Acoustic(Wrapper):
 	for data and spectrogram normalization.
 	"""
 
-	def __init__(self, ind, path, timestamp, wav_path = None, *, data_normalization : str = 'instrument', spectro_normalization : str = 'density', **kwargs):
+	def __init__(self, ind, *, path, timestamp, wav_path = None, data_normalization : str = 'instrument', spectro_normalization : str = 'density', **kwargs):
 		"""
 		Initializes the Acoustic class.
 
 		Parameters
 		----------
 		timestamp: dataframe-like object
-			A timestamp object, expected to contain file information for loading acoustic data. Stores beginning timestamp of each wavfile.
+			A timestamp object, expected to contain file information for loading acoustic data. Stores beginning and ending POSIX timestamp of each wavfile.
 			Contains columns fn (filename)
 		data_normalization : 'str', optional
 			Type of data normalization to be applied. Either 'instrument' or 'zscore'. Default is 'instrument'.
@@ -50,12 +48,9 @@ class Acoustic(Wrapper):
 		self.timestamp = timestamp
 		self.wav_path = wav_path if wav_path else os.getcwd()
 		self.samplerate = sf.info(os.path.join(self.wav_path, self.timestamp.fn.iloc[0])).samplerate
-		offset = self.dt * self.samplerate
-		default = {'window_size' : 1024, 'nfft' : 1024, 'offset' : offset}
+		default = {'window_size' : 1024, 'nfft' : 1024, 'overlap' : 0, 'duration' : 3}
 		self.params = {**default, **kwargs}
-		if 'duration' in self.params.keys():
-			self.params['window_size'] = self.params['duration'] * self.samplerate
-		
+
 		self.data_normalization = data_normalization
 		if self.data_normalization == 'instrument':
 			# Check that 'instrument' exists and is a dictionary
@@ -161,6 +156,7 @@ class Acoustic(Wrapper):
 		log_spectro: The computed and normalized spectrogram, representing the noise level in the data.
 		"""
 
+		# Create scales wrt to user parameters
 		win = np.hamming(self.params['window_size'])
 		if self.params['nfft'] < (self.params['window_size']):
 		    if self.spectro_normalization == "density":
@@ -173,37 +169,74 @@ class Acoustic(Wrapper):
 		    if self.spectro_normalization == "spectrum":
 		        scale_psd = 2.0 / (win.sum() ** 2)
 
-		Nbech = np.size(data)
-		Nbwin = int((Nbech - self.params['offset']) / self.params['offset'])
+		# Get FFT parameters
+		#Nbech = np.size(data)
+		#Nbwin = int((Nbech - self.params['offset']) / self.params['offset'])
 		freqs = np.fft.rfftfreq(self.params['nfft'], d=1 / self.samplerate)
+		Noverlap = int(self.params['window_size'] * self.params['overlap'] / 100)
+		Nbech = self.params['duration'] * self.samplerate
+		Noffset = self.params['window_size'] - Noverlap
+		Nbwin = int((Nbech - self.params['window_size']) / Noffset)
+		
+		
+		# Fetch wav starting times wrt to netCDF structure
+		matches = (self.ds['time'][:].data[:, None] >= self.timestamp.begin.to_numpy()) & (self.ds['time'][:].data[:, None] <= self.timestamp.end.to_numpy())
+		indices = np.where(matches.any(axis=1), matches.argmax(axis=1), -1)
+		time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.timestamp.begin.to_numpy()[indices], np.nan)
+		spectro = np.full([np.size(freqs), len(indices)], np.nan)
+		
+		for idx, wav_file in tqdm(enumerate(self.timestamp.fn)) :
 
-		Sxx = np.zeros([np.size(freqs), Nbwin])
-		for idwin in range(Nbwin):
-		    if self.params['nfft'] < (self.params['window_size']):
-		        x_win = data[idwin * self.params['offset'] : idwin * self.params['offset'] + self.params['window_size']]
-		        _, Sxx[:, idwin] = signal.welch(
-		            x_win,
-		            fs=self.samplerate,
-		            window="hamming",
-		            nperseg=int(self.params['nfft']),
-		            noverlap=int(self.params['nfft'] / 2),
-		            scaling=self.params['spectro_normalization']
-		        )
-		    else:
-		        x_win = data[idwin * self.params['offset'] : idwin * self.params['offset'] + self.params['window_size']] * win
-		        Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
-		    Sxx[:, idwin] *= scale_psd
-
-		if self.data_normalization == "instrument":
-		    log_spectro = 10 * np.log10((Sxx / (1e-12)) + (1e-20))
-
-		if self.data_normalization == "zscore":
-		    if self.spectro_normalization == "density":
-		        Sxx *= self.samplerate / 2  # value around 0dB
-		        log_spectro = 10 * np.log10(Sxx + (1e-20))
-		    if self.spectro_normalization == "spectrum":
-		        Sxx *= self.params['window_size'] / 2  # value around 0dB
-		        log_spectro = 10 * np.log10(Sxx + (1e-20))
+			# Fetch data corresponding to one wav file
+			data, _ = sf.read(os.path.join(self.wav_path, wav_file))
+			data = self.normalize(data)
+			_time_diffs = time_diffs[indices == idx]
+			
+			for j in range(len(_time_diffs)):
+				sig = data[int(_time_diffs[j] * self.samplerate) : int((_time_diffs[j] + self.params['duration']) * self.samplerate)]
+				Sxx = np.zeros([np.size(freqs), Nbwin])
+				for idwin in range(Nbwin):
+					if self.params['nfft'] < (self.params['window_size']):
+						x_win = sig[idwin * Noffset : idwin * Noffset + self.window_size]
+						_, Sxx[:, idwin] = sg.welch(
+							x_win,
+							fs=self.samplerate,
+							window="hamming",
+							nperseg=int(self.params['nfft']),
+							noverlap=int(self.params['nfft'] / 2),
+							scaling=self.spectro_normalization,
+							)
+					else:
+						x_win = sig[idwin * Noffset : idwin * Noffset + self.params['window_size']] * win
+						Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
+					Sxx[:, idwin] *= scale_psd
+				spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
+			
+			'''if self.params['nfft'] < (self.params['window_size']):
+        x_win = data[_time_diffs[j] * self.samplerate : _time_diffs[j] * self.samplerate + self.params['window_size']]
+        _, Sxx[:, np.argmax(indices == idx) + j] = signal.welch(
+            x_win,
+            fs=self.samplerate,
+            window="hamming",
+            nperseg=int(self.params['nfft']),
+            noverlap=int(self.params['nfft'] / 2),
+            scaling=self.params['spectro_normalization']
+        )
+    else:
+        x_win = data[_time_diffs[j] * self.samplerate : _time_diffs[j] * self.samplerate + self.params['window_size']] * win
+        Sxx[:, np.argmax(indices == idx) + j] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
+    Sxx[:, idwin] *= scale_psd'''
+	
+			if self.data_normalization == "instrument":
+			    log_spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
+	
+			if self.data_normalization == "zscore":
+			    if self.spectro_normalization == "density":
+			        spectro *= self.samplerate / 2  # value around 0dB
+			        log_spectro = 10 * np.log10(spectro + (1e-20))
+			    if self.spectro_normalization == "spectrum":
+			        spectro *= self.params['window_size'] / 2  # value around 0dB
+			        log_spectro = 10 * np.log10(spectro + (1e-20))
 
 		return log_spectro, freqs
 		
