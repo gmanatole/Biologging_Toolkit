@@ -7,52 +7,97 @@ from scipy.interpolate import interp1d
 from SES_tags.utils.angular_utils import *
 from SES_tags.wrapper import Wrapper
 
+
+
 class Inertial(Wrapper):
 	
-	def __init__(self, ind, *, path, inertial_path = None):
+	def __init__(
+		self, 
+		ind, 
+		*, 
+		path, 
+		inertial_path : str = None,
+		A = None,
+		M = None,
+		declination : str = 'download',
+		flip : list[list] = [[-1,1,-1], [1,-1,1]],
+		ponderation : str = 'angle'
+		):
 		'''
-		Parameters
-		----------
-		ind : str
-			str corresponding to the individual you want to load for (eg. ml17_280a)
+        Initializes an instance of the Inertial class, which handles loading and processing inertial sensor data.
 
-		Raises
-		------
-		IndexError
-			One dataset does not have magnetometer data and cannot be used.
-		'''
+        Parameters
+        ----------
+        ind : str
+            Identifier corresponding to the individual for whom data is being loaded (e.g., 'ml17_280a').
+        path : str
+            The path to the main dataset file required by the superclass `Wrapper`.
+        inertial_path : str, optional
+            Path to the inertial dataset file (e.g., containing magnetometer and accelerometer data). 
+            If provided, data will be loaded from this file. Default is None.
+        A : array-like, optional
+            Pre-loaded accelerometer data. Should be provided if `inertial_path` is not given. Default is None.
+        M : array-like, optional
+            Pre-loaded magnetometer data. Should be provided if `inertial_path` is not given. Default is None.
+        declination : str, optional
+            Method to fetch declination data. Options include 'download' or path to declination already downloaded data. Default is 'download'.
+			Can be None to not take declination into account
+        flip : list of lists, optional
+            A matrix used to correct the orientation of the axis to fit the NED (North-East-Down) system.
+            The default value is [[-1, 1, -1], [1, -1, 1]], which reflects typical axis inversion adjustments for body frame.
+        ponderation : str, optional
+            The method of weighting used during heading reconstruction. Options are:
+            - 'angle': Uses angular data for weighting.
+            - 'speed': Uses speed data for weighting.
+            - None.
+            Default is 'angle'.
+
+        Raises
+        ------
+        IndexError
+            Raised if the provided dataset does not contain magnetometer data, which is required for processing.
+        ValueError
+            Raised if neither `inertial_path` nor both `A` and `M` are provided.
+        '''
 		
 		super().__init__(
 			ind,
 			path
         )
-		
-		self.A = A
-		self.M = M
+		if inertial_path :
+			sens = nc.Dataset(inertial_path)
+			depth, depth_dt, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
+			self.inertial_time = np.linspace(0, len(depth), len(depth))*depth_dt+depth_start    #Create time array for sens data
+			self.M, self.A = sens['M'][:].data, sens['A'][:].data
+		elif A & M :
+			self.M, self.A = M, A
 
-		self.declinaison()    #Fetch declinaison data in existing dataframe
-		self.flip = [[-1,1,-1], [1,-1,1]]     #Correct axis orientation to fit with NED system used by equations in rest of code
-		self.ponderation = 'angle'    #Ponderation method for heading reconstruction (speed also possible, anyother str will lead to no ponderation)
-		
-	@classmethod	
-	def from_sens(cls, ind, inertial_path) :
-		sens = nc.Dataset(inertial_path)
-		depth, depth_dt, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
-		time = np.linspace(0, len(depth), len(depth))*depth_dt+depth_start    #Create time array for sens data
-		M, A = sens['M'][:].data, sens['A'][:].data
-		return cls(ind, A, M)
-			
-	def declinaison(self) :
+		self._declination = declination   #Fetch declination data in existing dataframe
+		self.flip = flip #Correct axis orientation to fit with NED system used by equations in rest of code
+		self.ponderation = ponderation    #Ponderation method for heading reconstruction (speed also possible, any other str will lead to no ponderation)
 
-		'''dec_data = pd.concat((pd.read_csv('/home6/grosmaan/Documents/codes/declinaison'),
-						pd.read_csv('/run/media/grosmaan/LaCie/individus_brut/CTD/declinaison.csv')))
-		dec_data = pd.read_csv('/home6/grosmaan/Documents/codes/declinaison')
-		dec_data = dec_data[dec_data.datasets == self.ml]
-		self.interp = inter((np.unique(dec_data.lon), np.unique(dec_data.lat), np.unique(dec_data.time)), 
-					   dec_data.declinaison.to_numpy().reshape(3,3,3), bounds_error = False, fill_value = None)'''
-		dec_data = pd.read_csv('/run/media/grosmaan/LaCie/individus_brut/CTD/declinaison.csv')
-		dec_data = dec_data[dec_data.datasets == self.ml]
-		self.interp = interp1d(dec_data.time, dec_data.declinaison, bounds_error = False, fill_value = None)
+	@property
+	def declination(self):
+		if isinstance(self._declination, str):
+			match self._declination:
+				case 'compute':
+					dec_time = self.ds['time'][:].data[:: int(24*3600/self.dt/2)]  #We only need about one declination data every twelve hours
+					dec_lat = self.ds['lat'][:].data[:: int(24*3600/self.dt/2)] 
+					dec_lon = self.ds['lon'][:].data[:: int(24*3600/self.dt/2)]
+					dec_data = [get_declination(lat, lon, time) for lat, lon, time in zip(dec_lat, dec_lon, dec_time)]
+					pd.DataFrame({'time':dec_time, 'declination':dec_data}).to_csv('declination.csv')
+					self.declination = 'declination.csv'
+				case _:
+					dec_data = pd.read_csv(self._declination)
+					return interp1d(dec_data.time, dec_data.declination, bounds_error=False, fill_value=None)
+				else:
+					# Default to no declination correction
+					return interp1d(self.time, np.zeros(len(self.time)), bounds_error=False, fill_value=None)
+
+	@declination.setter
+	def declination(self, value):
+		self._declination = value
+
 		
 	def compute_angles(self, t_min = 0, t_max = -1, N = 3) :
 		'''
@@ -92,12 +137,14 @@ class Inertial(Wrapper):
 			activity.append(np.sqrt(np.sum(np.nanvar(A_etude[:, i:i+int(N/self.depth_dt)+1], axis = 1))))
 			
 		self.A_moy, self.M_moy, self.P_moy, self.t_moy, self.activity = np.array(A_moy).T, np.array(M_moy).T, np.array(P_moy), np.array(t_moy), np.array(activity)
+
 		#Normalization of acceleration data 
 		A_norm = np.sqrt(np.sum(self.A_moy**2, axis = 0))
 		self.A_moy = self.A_moy/A_norm		
+
 		#Get local inclination angle for study period and area
 		declinaison = self.interp((lon_interp(self.t_moy), lat_interp(self.t_moy), self.t_moy)) * np.pi / 180
-		'''declinaison = self.interp(self.t_moy) * np.pi / 180'''
+
 		#Create dP array of correct size by adding slight offset
 		self.dP = np.concatenate((np.zeros((1)), self.P_moy[1:] - self.P_moy[:-1]))
 		
@@ -129,69 +176,7 @@ class Inertial(Wrapper):
 		
 		self.change_axes()   #Switch axes back to default
 
-	def calibration(self, t_off = 500, d_off = 0.5, method = 'random', t_min = 0, t_max = np.inf) :
-		'''
-		For calibration purposes, the aim is to find a dive where the elephant seal travels far in a short amount of time.
-		
-		Parameters
-		----------
-		t_off : int, optional
-			Minimum time offset between two successive surfacing for dive to be considered. The default is 500.
-		d_off : TYPE, optional
-			Minimum distance offset between two successive surfacing for dive to be considered. The default is 0.5.
-		method : str, optional
-			'random', 'all', or 'precise'. 'random' will take a random dive satisfying t_off. 
-			'all' will consider every dive between t_min and t_max.
-			'precise' will consider dives preselected by user in t_min array.
-			The default is 'random'.
-		t_min : arr or int or float, optional
-			for 'all' method, it is the index for pos_time after which data is kept.
-			for 'precise' it is an array of indices from pos_time that are anywhere in a dive. That dive will be kept.
-			The default is 0.
-		t_max : int or float, optional
-			for 'all' method, it is the index for pos_time up to which data is kept.
-			The default is np.inf.
 
-		'''
-		
-		#Select dives for calibration
-		pos_dt = self.pos_time[1:]-self.pos_time[:-1]
-		dives = np.where((pos_dt > t_off))[0]
-		if method == 'random':
-			dives = [random.choice(dives)]
-		elif method == 'all' :
-			dives = dives[(dives > t_min) & (dives < t_max)]
-		elif method == 'precise' :
-			dives = [len((self.pos_time - _t_min)[(self.pos_time - _t_min) < 0])- 1 for _t_min in t_min]
-			
-		self.heading = []
-		self.heading_time = []
-		
-		for j, selected_dive in enumerate(dives) :
-			pos_up, pos_low = selected_dive+1, selected_dive
-			lat = np.array([self.lat[pos_low], self.lat[pos_up]])*np.pi/180
-			lon = np.array([self.lon[pos_low], self.lon[pos_up]])*np.pi/180
-			#Compute distance traveled by the SES in selected dives and remove if inferior to d_off
-			distance = 6371 * np.arccos(coa(lat, lon))
-			if distance < d_off :
-				continue
-			#Compute heading of animal using the lat/lon data
-			direction = np.arctan2(np.sin(lat[1]) - coa(lat, lon) * np.sin(lat[0]), np.sin(lon[1] - lon[0]) * np.cos(lat[1]) * np.cos(lat[0]))
-			
-			#Compute heading of animal using acc/mag
-			self.compute_angles(pos_low, pos_up)
-			self.heading.append([self.az_mean.mean() * 180 / np.pi, direction * 180 / np.pi])
-			self.heading_time.append(self.pos_time[pos_low : pos_up+1].mean())
-		
-		self.heading = np.array(self.heading)
-		self.heading_time = np.array(self.heading_time)
-		if len(self.heading) == 0:
-			self.heading = np.array([[np.nan, np.nan]])
-		
-		self.errs = ((self.heading[:,0]-self.heading[:,1]) + 180) % 360 - 180
-		self.corr1 = np.sqrt((np.nansum(np.cos(self.heading[:,0] - self.heading[:,1]))**2 + np.nansum(np.sin(self.heading[:,0] - self.heading[:,1]))**2))/self.heading.shape[0]
-		self.corr2 = np.sqrt((np.nansum(np.cos(self.heading[:,0] + self.heading[:,1]))**2 + np.nansum(np.sin(self.heading[:,0] + self.heading[:,1]))**2))/self.heading.shape[0]
-	
 	def change_axes(self):
 		self.A[0] = self.flip[0][0] * self.A[0]
 		self.A[1] = self.flip[0][1] * self.A[1]
@@ -200,10 +185,3 @@ class Inertial(Wrapper):
 		self.M[1] = self.flip[1][1] * self.M[1]
 		self.M[2] = self.flip[1][2] * self.M[2]
 		
-
-'''mls = ['ml21_305a', 'ml19_294b', 'ml19_294a', 'ml19_293b', 'ml19_292b', 'ml19_290c', 'ml19_290b', 'ml19_290a', 'ml18_296a', 'ml18_295b', 'ml18_295a', 'ml18_294c', 'ml17_280a', 'ml17_281a', 'ml17_301a', 'ml18_292a', 'ml18_293a', 'ml18_294a', 'ml18_294b', 'ml19_292a', 'ml19_293a', 'ml19_295a', 'ml19_295c', 'ml19_296a','ml20_292a', 'ml20_293a', 'ml20_295a', 'ml20_296a','ml20_296b', 'ml20_296c','ml20_297a','ml20_304a','ml20_313a','ml21_282a','ml21_295a','ml21_297a','ml21_298a','ml21_303a', 'ml21_305b']
-for ml in mls:
-    inst = Orientation(ml)
-    inst.compute_angles()
-    df = pd.DataFrame().from_dict({'epoch':inst.t_moy, 'depth':inst.P_moy, 'Ax':inst.A_moy[0], 'Ay':inst.A_moy[1], 'Az':inst.A_moy[2], 'Mx':inst.M_moy[0], 'My':inst.M_moy[1], 'Mz':inst.M_moy[2], 'elevation_angle':inst.elevation_angle, 'bank_angle':inst.bank_angle, 'azimuth':inst.azimuth, 'vertical_azimuth':inst.vertical_azimuth, 'activity':inst.activity, 'rotation':inst.rotation})
-    df.to_csv('/run/media/grosmaan/LaCie/individus_brut/CTD/'+ml+'/inertial_data.csv', index = None)'''

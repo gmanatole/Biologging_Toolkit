@@ -1,10 +1,10 @@
-import datetime, calendar, time
+import datetime
 import numpy as np
 import requests
 import xml.etree.ElementTree as ET
 
-get_matlab_date = lambda x : calendar.timegm((datetime.datetime.fromordinal(int(x)) + datetime.timedelta(days=x%1) - datetime.timedelta(days = 366)).timetuple())
-get_start_date = lambda x : calendar.timegm(time.strptime(x, '%Y/%m/%d %H:%M:%S'))
+def get_start_date(x) :
+	return datetime.strptime(x, '%Y/%m/%d %H:%M:%S').timestamp()
 
 def angular_average(angles):
     # Convert angles to Cartesian coordinates
@@ -32,7 +32,6 @@ def modulo_pi(angle):
     angle[angle > np.pi] = angle[angle > np.pi] - 2 * np.pi
     
     return angle
-
 
 def coa(lat, lon):
 	return np.sin(lat[1])*np.sin(lat[0]) + np.cos(lat[0])*np.cos(lat[1])*(np.cos((lon[1]-lon[0])))
