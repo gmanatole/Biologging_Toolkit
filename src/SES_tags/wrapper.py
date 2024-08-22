@@ -29,6 +29,8 @@ class Wrapper():
 		#Check if individual file already exists, if not create it
 		mode='a' if os.path.exists(os.path.join(self.path, self.ind + '.nc')) else 'w'
 		self.ds = nc.Dataset(os.path.join(self.path, self.ind + '.nc'), mode = mode)
+		self.ds.sampling_rate = self.dt
+		self.ds.sampling_rate_units = 'Seconds'
 		self.dataset_name
 
 	@property

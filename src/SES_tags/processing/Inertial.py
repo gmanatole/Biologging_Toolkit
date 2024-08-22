@@ -1,64 +1,47 @@
-"""
-Created on Wed Nov 29 13:38:09 2023
-
-@author: grosmaan
-"""
-import requests
 import netCDF4 as nc
-import time, datetime, calendar
 import numpy as np
-import xml.etree.ElementTree as ET
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 import random
 import pandas as pd
 from tqdm import tqdm
-from scipy.interpolate import RegularGridInterpolator as inter
 from scipy.interpolate import interp1d
 from SES_tags.utils.angular_utils import *
+from SES_tags.wrapper import Wrapper
 
-class Inertial():
+class Inertial(Wrapper):
 	
-	def __init__(self, ml, T = False, S = False):
+	def __init__(self, ind, *, path, inertial_path = None):
 		'''
 		Parameters
 		----------
-		ml : str
-			str corresponding to elephant seal data you want to load (eg. ml17_280a)
-		T : bool
-			True if you want temperature data to be loaded by the class. The default is False.
-		S : bool
-			True if you want temperature data to be loaded by the class. The default is False.
+		ind : str
+			str corresponding to the individual you want to load for (eg. ml17_280a)
 
 		Raises
 		------
 		IndexError
 			One dataset does not have magnetometer data and cannot be used.
 		'''
-		self.ml = ml
-		sens = nc.Dataset(f'/run/media/grosmaan/LaCie/individus_brut/CTD/{ml}/{ml}sens5.nc')
-		trk = nc.Dataset(f'/run/media/grosmaan/LaCie/individus_brut/CTD/{ml}/{ml}trk.nc')
-		self.depth, self.depth_dt, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
-		self.pos_time, self.lat, self.lon = trk['POS'][:].data
-		self.time = np.linspace(0, len(self.depth), len(self.depth))*self.depth_dt+depth_start    #Create time array for sens data
-		if ml == 'ml17_280a':      #Time for ses ml17_280a is not in the same format as other ses
-			self.pos_time = np.array(list(map(get_matlab_date, self.pos_time)))
-		else :
-			self.pos_time = self.pos_time+depth_start   #create time array for trk data
-		try :
-			self.M, self.A = sens['M'][:].data, sens['A'][:].data
-			self.A = self.A[:, :len(self.time)]
-		except IndexError :
-			raise IndexError	('No magnetometer data in this dataset')	
+		
+		super().__init__(
+			ind,
+			path
+        )
+		
+		self.A = A
+		self.M = M
 
 		self.declinaison()    #Fetch declinaison data in existing dataframe
 		self.flip = [[-1,1,-1], [1,-1,1]]     #Correct axis orientation to fit with NED system used by equations in rest of code
 		self.ponderation = 'angle'    #Ponderation method for heading reconstruction (speed also possible, anyother str will lead to no ponderation)
-		if T:
-			self.T = sens['T'][:].data
-		if S:
-			self.S = sens['S'][:].data
 		
+	@classmethod	
+	def from_sens(cls, ind, inertial_path) :
+		sens = nc.Dataset(inertial_path)
+		depth, depth_dt, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
+		time = np.linspace(0, len(depth), len(depth))*depth_dt+depth_start    #Create time array for sens data
+		M, A = sens['M'][:].data, sens['A'][:].data
+		return cls(ind, A, M)
+			
 	def declinaison(self) :
 
 		'''dec_data = pd.concat((pd.read_csv('/home6/grosmaan/Documents/codes/declinaison'),
