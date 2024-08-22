@@ -81,7 +81,8 @@ class Acoustic(Wrapper):
 		ValueError:
 		If frequency components (`freqs`) differ across files.
 		"""
-		final_freqs = None
+		
+		'''final_freqs = None
 		acoustic_data = []
 		for i, row in self.timestamp.iterrows():
 			data, fs = sf.read(os.path.join(self.wav_path, row.fn))
@@ -96,8 +97,10 @@ class Acoustic(Wrapper):
 					acoustic_data.append(spectro)
 				else:
 					print(f"Found different frequencies for file {row.fn}. Skipping.")
-		acoustic_data = np.hstack(acoustic_data)
-
+		acoustic_data = np.hstack(acoustic_data)'''
+		
+		log_spectro, freqs = self.compute_noise_level()
+		
 		# Create or retrieve the time dimension (assuming it's already in the dataset)
 		if 'time' not in self.ds.dimensions:
 			raise ValueError("Time dimension is missing from the dataset. Please call create_time method first.")
@@ -110,11 +113,11 @@ class Acoustic(Wrapper):
 				self.remove_variable('frequency_spectrogram')
 		
 		# Create or retrieve the frequency dimension and variable
-		freq_dim = self.ds.createDimension('frequency_spectrogram', acoustic_data.shape[0])
+		freq_dim = self.ds.createDimension('frequency_spectrogram', log_spectro.shape[0])
 		freq_var = self.ds.createVariable('frequency_spectrogram', np.float32, ('frequency_spectrogram',))
 		freq_var.units = 'Hz'
 		freq_var.long_name = 'Frequency values'
-		freq_var[:] = final_freqs
+		freq_var[:] = freqs
 
 		# Create or update the spectrogram variable
 		spectrogram_var = self.ds.createVariable('spectrogram', np.float32, ('time', 'frequency_spectrogram'))
@@ -122,7 +125,7 @@ class Acoustic(Wrapper):
 		spectrogram_var.db_type = 'absolute' if self.data_normalization == 'instrument' else 'relative'
 		spectrogram_var.long_name = 'Spectrogram data'
 
-		spectrogram_var[:] = acoustic_data.T
+		spectrogram_var[:] = log_spectro.T
 
 
 
@@ -144,7 +147,7 @@ class Acoustic(Wrapper):
 		        / 10 ** (self.params['instrument']['gain_dB'] / 20))
 		return data
 
-	def compute_noise_level(self, data): 
+	def compute_noise_level(self): 
 		"""
 		Computes the noise level of the provided acoustic data using windowed Fourier transforms.
 		Parameters
@@ -185,16 +188,23 @@ class Acoustic(Wrapper):
 		time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.timestamp.begin.to_numpy()[indices], np.nan)
 		spectro = np.full([np.size(freqs), len(indices)], np.nan)
 		
-		for idx, wav_file in tqdm(enumerate(self.timestamp.fn)) :
+		pbar = tqdm(total = len(self.timestamp), leave = True)
+	
+		for idx, wav_file in enumerate(self.timestamp.fn) :
 
+			pbar.update(1)
+			pbar.set_description(f'Computing spectral power for file : {wav_file}')
+			
 			# Fetch data corresponding to one wav file
-			data, _ = sf.read(os.path.join(self.wav_path, wav_file))
+			data, _ = sf.read(os.path.join(self.wav_path, wav_file), dtype = 'float32')
 			data = self.normalize(data)
 			_time_diffs = time_diffs[indices == idx]
 			
+			# Read signal at correct timestamp
 			for j in range(len(_time_diffs)):
 				sig = data[int(_time_diffs[j] * self.samplerate) : int((_time_diffs[j] + self.params['duration']) * self.samplerate)]
 				Sxx = np.zeros([np.size(freqs), Nbwin])
+				#Compute the spectrogram for desired duration and with chosen window parameters
 				for idwin in range(Nbwin):
 					if self.params['nfft'] < (self.params['window_size']):
 						x_win = sig[idwin * Noffset : idwin * Noffset + self.window_size]
@@ -212,21 +222,9 @@ class Acoustic(Wrapper):
 					Sxx[:, idwin] *= scale_psd
 				spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
 			
-			'''if self.params['nfft'] < (self.params['window_size']):
-        x_win = data[_time_diffs[j] * self.samplerate : _time_diffs[j] * self.samplerate + self.params['window_size']]
-        _, Sxx[:, np.argmax(indices == idx) + j] = signal.welch(
-            x_win,
-            fs=self.samplerate,
-            window="hamming",
-            nperseg=int(self.params['nfft']),
-            noverlap=int(self.params['nfft'] / 2),
-            scaling=self.params['spectro_normalization']
-        )
-    else:
-        x_win = data[_time_diffs[j] * self.samplerate : _time_diffs[j] * self.samplerate + self.params['window_size']] * win
-        Sxx[:, np.argmax(indices == idx) + j] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
-    Sxx[:, idwin] *= scale_psd'''
-	
+			pbar.set_description('Normalizing and saving data')
+			
+			# Normalize spectrogram
 			if self.data_normalization == "instrument":
 			    log_spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
 	
