@@ -128,7 +128,6 @@ class Acoustic(Wrapper):
 		spectrogram_var[:] = log_spectro.T
 
 
-
 	def normalize(self, data) :
 		"""
 		Normalizes the input acoustic data based on the specified data_normalization method.
@@ -146,6 +145,7 @@ class Acoustic(Wrapper):
 		        / (20 * np.log10(self.params['instrument']['sensitivity'] / 1e6))
 		        / 10 ** (self.params['instrument']['gain_dB'] / 20))
 		return data
+
 
 	def compute_noise_level(self): 
 		"""

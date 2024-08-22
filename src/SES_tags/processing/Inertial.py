@@ -17,8 +17,7 @@ class Inertial(Wrapper):
 		*, 
 		path, 
 		inertial_path : str = None,
-		A = None,
-		M = None,
+		data = {'time': None, 'A' : None, 'M' : None, 'P' : None},
 		declination : str = 'download',
 		flip : list[list] = [[-1,1,-1], [1,-1,1]],
 		ponderation : str = 'angle'
@@ -35,10 +34,13 @@ class Inertial(Wrapper):
         inertial_path : str, optional
             Path to the inertial dataset file (e.g., containing magnetometer and accelerometer data). 
             If provided, data will be loaded from this file. Default is None.
-        A : array-like, optional
-            Pre-loaded accelerometer data. Should be provided if `inertial_path` is not given. Default is None.
-        M : array-like, optional
-            Pre-loaded magnetometer data. Should be provided if `inertial_path` is not given. Default is None.
+		data : dic, optional
+			Dictionary containing time data 'time', and inertial data 'A' and 'M'. Depth data 'P' can be added for better euler angle estimations.
+	        A : array-like, optional
+	            Pre-loaded accelerometer data. Should be provided if `inertial_path` is not given. Default is None.
+	        M : array-like, optional
+	            Pre-loaded magnetometer data. Should be provided if `inertial_path` is not given. Default is None.
+			All data needs to be 1D and correspond to a regularly spaced time data.
         declination : str, optional
             Method to fetch declination data. Options include 'download' or path to declination already downloaded data. Default is 'download'.
 			Can be None to not take declination into account
@@ -66,11 +68,13 @@ class Inertial(Wrapper):
         )
 		if inertial_path :
 			sens = nc.Dataset(inertial_path)
-			depth, depth_dt, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
-			self.inertial_time = np.linspace(0, len(depth), len(depth))*depth_dt+depth_start    #Create time array for sens data
-			self.M, self.A = sens['M'][:].data, sens['A'][:].data
-		elif A & M :
-			self.M, self.A = M, A
+			depth, self.inertial_dt, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
+			self.inertial_time = np.linspace(0, len(depth), len(depth))*self.inertial_dt+depth_start    #Create time array for sens data
+			self.M, self.A, self.P = sens['M'][:].data, sens['A'][:].data, sens['P'][:].data
+		elif data['A'] is not None and data['M'] is not None and data['time'] is not None :
+			self.M, self.A, self.P = data['M'], data['A'], data['P']
+			self.inertial_time = data['time']
+			self.inertial_dt = self.inertial_time[1]-self.inertial_time[0]
 
 		self._declination = declination   #Fetch declination data in existing dataframe
 		self.flip = flip #Correct axis orientation to fit with NED system used by equations in rest of code
@@ -98,43 +102,25 @@ class Inertial(Wrapper):
 	def declination(self, value):
 		self._declination = value
 
+	def forward(self, overwrite = True, N = None):
+		pass
 		
-	def compute_angles(self, t_min = 0, t_max = -1, N = 3) :
-		'''
-		Parameters
-		----------
-		t_min : int, optional
-			Index for trk time array at which study starts. 
-			For instance if user wants to look at data after epoch 15785896, t_min will verify pos_time[t_min] = 15785896
-			The default is 0.
-		t_max : TYPE, optional
-			Index for trk time array at which study stops. 
-			For instance if user wants to look at data before epoch 15785907, t_min will verify pos_time[t_min] = 15785907
-			The default is -1
-		N : int, optional
-			Window used to average acc and mag data to remove components due to animal's movement. The default is 3.
-		'''
+		
+	def compute_angles(self, N = None) :
+		
+		if not N :
+			N = self.dt
 	
 		self.change_axes()   #Switch axis to NED
-		if t_max == -1:    #If user wants to compute angles for all available data
-			t_max = len(self.pos_time)-1
-		# Create new arrays for user's time selection
-		pos_bounds = self.pos_time[t_min : t_max+1]
-		lat_sel, lon_sel = self.lat[t_min : t_max+1], self.lon[t_min : t_max+1]
-		lat_interp, lon_interp = interp1d(pos_bounds, lat_sel), interp1d(pos_bounds, lon_sel)
-		t_etude = self.time[(self.time > pos_bounds[0]) & (self.time < pos_bounds[-1])]
-		A_etude = self.A[:, (self.time > pos_bounds[0]) & (self.time < pos_bounds[-1])]
-		M_etude = self.M[:, (self.time > pos_bounds[0]) & (self.time < pos_bounds[-1])]
-		P_etude = self.depth[(self.time > pos_bounds[0]) & (self.time < pos_bounds[-1])]
 
 		# Remove noise due to elephant seal's movement
 		A_moy, M_moy, t_moy, P_moy, activity = [],[], [], [], []
-		for i in tqdm(range(0, A_etude.shape[1], int(N/self.depth_dt))):   #Averaging over N seconds
-			P_moy.append(np.nanmean(P_etude[i:i+int(N/self.depth_dt)+1]))
-			t_moy.append(np.nanmean(t_etude[i:i+int(N/self.depth_dt)+1]))
-			A_moy.append(list(np.nanmean(A_etude[:, i:i+int(N/self.depth_dt)+1], axis = 1)))
-			M_moy.append(list(np.nanmean(M_etude[:, i:i+int(N/self.depth_dt)+1], axis = 1)))
-			activity.append(np.sqrt(np.sum(np.nanvar(A_etude[:, i:i+int(N/self.depth_dt)+1], axis = 1))))
+		for i in tqdm(range(0, self.A.shape[1], int(N/self.inertial_dt))):   
+			P_moy.append(np.nanmean(self.P[i:i+int(N/self.inertial_dt)+1]))
+			t_moy.append(np.nanmean(self.inertial_time[i:i+int(N/self.inertial_dt)+1]))
+			A_moy.append(list(np.nanmean(self.A[:, i:i+int(N/self.inertial_dt)+1], axis = 1)))
+			M_moy.append(list(np.nanmean(self.M[:, i:i+int(N/self.inertial_dt)+1], axis = 1)))
+			activity.append(np.sqrt(np.sum(np.nanvar(self.A[:, i:i+int(N/self.inertial_dt)+1], axis = 1))))
 			
 		self.A_moy, self.M_moy, self.P_moy, self.t_moy, self.activity = np.array(A_moy).T, np.array(M_moy).T, np.array(P_moy), np.array(t_moy), np.array(activity)
 
@@ -143,7 +129,7 @@ class Inertial(Wrapper):
 		self.A_moy = self.A_moy/A_norm		
 
 		#Get local inclination angle for study period and area
-		declinaison = self.interp((lon_interp(self.t_moy), lat_interp(self.t_moy), self.t_moy)) * np.pi / 180
+		adjust_declination = self.declination(self.t_moy) * np.pi / 180
 
 		#Create dP array of correct size by adding slight offset
 		self.dP = np.concatenate((np.zeros((1)), self.P_moy[1:] - self.P_moy[:-1]))
@@ -164,14 +150,14 @@ class Inertial(Wrapper):
 			ponderation[1:][abs(self.P_moy[1:]-self.P_moy[:-1]) < 0.2] = np.nan
 		else :
 			ponderation = np.ones((len(self.elevation_angle)))
-		self.az_mean = np.arctan2(np.nansum(ponderation*np.sin(self.azimuth)), np.nansum(ponderation*np.cos(self.azimuth))) - declinaison
+		self.az_mean = np.arctan2(np.nansum(ponderation*np.sin(self.azimuth)), np.nansum(ponderation*np.cos(self.azimuth))) - adjust_declination
 		self.az_mean = modulo_pi(self.az_mean)
 		
 		# Get orientation of the elephant seal when he is breathing at the surface
 		self.rotation = np.zeros((len(self.elevation_angle)))
 		self.rotation[self.elevation_angle > 1.5] = np.arctan2(self.M_moy[1][self.elevation_angle > 1.5], self.M_moy[2][self.elevation_angle >= 1.5]) - np.pi/2
 		self.rotation[self.elevation_angle < 1.5] = np.arctan2(self.M_moy[1][self.elevation_angle < 1.5], -self.M_moy[0][self.elevation_angle < 1.5]) + self.bank_angle[self.elevation_angle < 1.5]
-		self.rotation = self.rotation - declinaison
+		self.rotation = self.rotation - adjust_declination
 		self.rotation = modulo_pi(self.rotation)
 		
 		self.change_axes()   #Switch axes back to default
