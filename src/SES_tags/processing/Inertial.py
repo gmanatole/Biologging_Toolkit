@@ -1,12 +1,11 @@
 import netCDF4 as nc
 import numpy as np
-import random
 import pandas as pd
 from tqdm import tqdm
 from scipy.interpolate import interp1d
-from SES_tags.utils.angular_utils import *
+from SES_tags.utils.inertial_utils import *
 from SES_tags.wrapper import Wrapper
-
+import pdb
 
 
 class Inertial(Wrapper):
@@ -82,25 +81,56 @@ class Inertial(Wrapper):
 
 	@property
 	def declination(self):
+		"""
+		Get or set the magnetic declination data for the dataset.
+		If the `_declination` attribute is a string, this property behaves as follows:
+
+		- If `_declination` is `'compute'`:
+			- Computes the magnetic declination based on the dataset's latitude, longitude, and time data.
+			- The computation samples the data at twelve-hour intervals and saved to a CSV file named `'declination.csv'`.
+			- `_declination` attribute is updated to point to this file.
+
+		- If `_declination` is a string that points to a CSV file:
+			- Loads the declination data from the CSV file.
+			- Returns an interpolating function that estimates the declination for any given time in the dataset.
+
+		- If `_declination` is neither `'compute'` nor a valid filename:
+			- Defaults to no declination correction.
+			- Returns an interpolating function that provides zero correction for all times.
+
+		Returns:
+			scipy.interpolate.interp1d: A function that interpolates declination data based on time.
+		"""	
 		if isinstance(self._declination, str):
-			match self._declination:
-				case 'compute':
-					dec_time = self.ds['time'][:].data[:: int(24*3600/self.dt/2)]  #We only need about one declination data every twelve hours
-					dec_lat = self.ds['lat'][:].data[:: int(24*3600/self.dt/2)] 
-					dec_lon = self.ds['lon'][:].data[:: int(24*3600/self.dt/2)]
-					dec_data = [get_declination(lat, lon, time) for lat, lon, time in zip(dec_lat, dec_lon, dec_time)]
-					pd.DataFrame({'time':dec_time, 'declination':dec_data}).to_csv('declination.csv')
-					self.declination = 'declination.csv'
-				case _:
-					dec_data = pd.read_csv(self._declination)
-					return interp1d(dec_data.time, dec_data.declination, bounds_error=False, fill_value=None)
-				else:
-					# Default to no declination correction
-					return interp1d(self.time, np.zeros(len(self.time)), bounds_error=False, fill_value=None)
+			if self._declination == 'compute':
+				# Case where _declination is 'compute'
+				dec_time = self.ds['time'][:].data[:: int(24*3600/self.dt/2)]  # We only need about one declination data every twelve hours
+				dec_lat = self.ds['lat'][:].data[:: int(24*3600/self.dt/2)]
+				dec_lon = self.ds['lon'][:].data[:: int(24*3600/self.dt/2)]
+				dec_data = [get_declination(lat, lon, time) for lat, lon, time in zip(dec_lat, dec_lon, dec_time)]
+				pd.DataFrame({'time': dec_time, 'declination': dec_data}).to_csv('declination.csv')
+				self.declination = 'declination.csv'
+			else:
+				# Case where _declination is any other string pointing to a csv file
+				dec_data = pd.read_csv(self._declination)
+				return interp1d(dec_data.time, dec_data.declination, bounds_error=False, fill_value=None)
+		else:
+			# Default case: _declination is not a string, no declination correction
+			return interp1d(self.ds['time'][:], np.zeros(len(self.ds['time'][:])), bounds_error=False, fill_value=None)
+
 
 	@declination.setter
 	def declination(self, value):
+		"""
+		Set the `_declination` attribute.
+
+		Parameters:
+		----------
+		value (str): Can be a string indicating the mode of operation ('compute') or a filename
+			     pointing to a CSV file containing precomputed declination data.
+		"""
 		self._declination = value
+
 
 	def forward(self, overwrite = True, N = None):
 		pass
@@ -112,17 +142,26 @@ class Inertial(Wrapper):
 			N = self.dt
 	
 		self.change_axes()   #Switch axis to NED
+		self.A_moy = np.full((len(self.ds['time']),3), np.nan)
+		self.M_moy = np.full((len(self.ds['time']),3), np.nan)
+		self.P_moy = np.full(len(self.ds['time']), np.nan)  
+		self.activity = np.full(len(self.ds['time']), np.nan)
+		if self.ds['time'][:][0] >= self.inertial_time[0] :
+			offset = 0
+			start_idx = np.argmin(np.abs(self.inertial_time - self.ds['time'][:][0]))
+		else :
+			offset = len(self.ds['time'][:][self.ds['time'][:] < self.inertial_time[0]])
+			start_idx = np.argmin(np.abs(self.inertial_time - self.ds['time'][:][offset]))
 
-		# Remove noise due to elephant seal's movement
-		A_moy, M_moy, t_moy, P_moy, activity = [],[], [], [], []
-		for i in tqdm(range(0, self.A.shape[1], int(N/self.inertial_dt))):   
-			P_moy.append(np.nanmean(self.P[i:i+int(N/self.inertial_dt)+1]))
-			t_moy.append(np.nanmean(self.inertial_time[i:i+int(N/self.inertial_dt)+1]))
-			A_moy.append(list(np.nanmean(self.A[:, i:i+int(N/self.inertial_dt)+1], axis = 1)))
-			M_moy.append(list(np.nanmean(self.M[:, i:i+int(N/self.inertial_dt)+1], axis = 1)))
-			activity.append(np.sqrt(np.sum(np.nanvar(self.A[:, i:i+int(N/self.inertial_dt)+1], axis = 1))))
+		for i, t in tqdm(enumerate(range(offset, len(self.ds['time']))), position=0, leave=True, desc='Averaging inertial data'):
+			lind = int(start_idx + i*(self.dt / self.inertial_dt))
+			hind = lind + int(N / self.inertial_dt) + 1
+			self.P_moy[t] = np.nanmean(self.P[lind:hind])
+			self.A_moy[t] = list(np.nanmean(self.A[:, lind:hind], axis = 1))
+			self.M_moy[t] = list(np.nanmean(self.M[:, lind:hind], axis = 1))
+			self.activity[t] = np.sqrt(np.sum(np.nanvar(self.A[:, lind:hind], axis = 1)))
 			
-		self.A_moy, self.M_moy, self.P_moy, self.t_moy, self.activity = np.array(A_moy).T, np.array(M_moy).T, np.array(P_moy), np.array(t_moy), np.array(activity)
+		self.A_moy, self.M_moy, self.P_moy, self.activity = np.array(A_moy).T, np.array(M_moy).T, np.array(P_moy), np.array(activity)
 
 		#Normalization of acceleration data 
 		A_norm = np.sqrt(np.sum(self.A_moy**2, axis = 0))

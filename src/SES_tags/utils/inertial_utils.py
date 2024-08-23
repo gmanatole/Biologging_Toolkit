@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import numpy as np
 import requests
 import xml.etree.ElementTree as ET
@@ -42,7 +42,7 @@ def get_declination(lat, lon, time):
 
 	# Additional parameters
 	model = 'IGRF'
-	time = datetime.datetime.fromtimestamp(time)
+	time = datetime.fromtimestamp(time)
 	start_year = time.year
 	start_month = time.month
 	start_day = time.day
