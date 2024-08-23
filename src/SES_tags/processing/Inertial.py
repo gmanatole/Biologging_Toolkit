@@ -17,7 +17,7 @@ class Inertial(Wrapper):
 		path, 
 		inertial_path : str = None,
 		data = {'time': None, 'A' : None, 'M' : None, 'P' : None},
-		declination : str = 'download',
+		declination : str = None,
 		flip : list[list] = [[-1,1,-1], [1,-1,1]],
 		ponderation : str = 'angle'
 		):
@@ -132,9 +132,56 @@ class Inertial(Wrapper):
 		self._declination = value
 
 
+	def __call__(self, overwrite = False):
+		return self.forward(overwrite = overwrite)
+	
 	def forward(self, overwrite = True, N = None):
-		pass
 		
+		self.compute_angles(N)
+		
+		if overwrite :
+			if 'azimuth' in self.ds.variables:
+				self.remove_variable('azimuth')
+			if 'elevation_angle' in self.ds.variables:
+				self.remove_variable('elevation_angle')
+			if 'bank_angle' in self.ds.variables:
+				self.remove_variable('bank_angle')
+			if 'vertical_azimuth' in self.ds.variables:
+				self.remove_variable('vertical_azimuth')
+
+		if 'azimuth' not in self.ds.variables:
+			azimuth = self.ds.createVariable('azimuth', np.float64, ('time',))
+			azimuth.units = 'radians'
+			azimuth.long_name = 'Heading of the animal in radians'
+			azimuth.measure = 'Angle measured counter-clockwise from the East'
+			azimuth.ponderation = 'None'
+			azimuth[:] = self.azimuth
+
+		if 'elevation_angle' not in self.ds.variables:
+			elevation_angle = self.ds.createVariable('elevation_angle', np.float64, ('time',))
+			elevation_angle.units = 'radians'
+			elevation_angle.long_name = 'Elevation angle of the animal in radians'
+			elevation_angle.measure = 'Angle tail-to-head axis of the animal with regards to the horizontal plane'
+			elevation_angle.ponderation = 'None'
+			elevation_angle[:] = self.elevation_angle  
+			
+		if 'bank_angle' not in self.ds.variables:
+			bank_angle = self.ds.createVariable('bank_angle', np.float64, ('time',))
+			bank_angle.units = 'radians'
+			bank_angle.long_name = 'Bank angle of the animal in radians'
+			bank_angle.comment = 'Angle representing the roll of the animal'
+			bank_angle.measure = 'Angle of the belly-to-back axis of the animal with regards to the vertical plane'
+			bank_angle.ponderation = 'None'
+			bank_angle[:] = self.bank_angle
+		
+		if 'vertical_azimuth' not in self.ds.variables:
+			vertical_azimuth = self.ds.createVariable('vertical_azimuth', np.float64, ('time',))
+			vertical_azimuth.units = 'radians'
+			vertical_azimuth.long_name = 'Vertical azimuth angle of the animal in radians'
+			vertical_azimuth.measure = 'Angle measured counter-clockwise from the East, relative to the belly-back axis when animal is upright'
+			vertical_azimuth.ponderation = 'None'
+			vertical_azimuth[:] = self.rotation
+			
 		
 	def compute_angles(self, N = None) :
 		

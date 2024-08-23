@@ -82,23 +82,6 @@ class Acoustic(Wrapper):
 		If frequency components (`freqs`) differ across files.
 		"""
 		
-		'''final_freqs = None
-		acoustic_data = []
-		for i, row in self.timestamp.iterrows():
-			data, fs = sf.read(os.path.join(self.wav_path, row.fn))
-			data = self.normalize(data)
-			spectro, freqs = self.compute_noise_level(data)
-
-			# Checking that all frequencies are the same for the different wav files in order to stack the spectrograms
-			if final_freqs is None:
-				final_freqs = freqs
-			else:
-				if np.array_equal(final_freqs, freqs):
-					acoustic_data.append(spectro)
-				else:
-					print(f"Found different frequencies for file {row.fn}. Skipping.")
-		acoustic_data = np.hstack(acoustic_data)'''
-		
 		log_spectro, freqs = self.compute_noise_level()
 		
 		# Create or retrieve the time dimension (assuming it's already in the dataset)
