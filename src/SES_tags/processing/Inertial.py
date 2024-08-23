@@ -152,8 +152,9 @@ class Inertial(Wrapper):
 		else :
 			offset = len(self.ds['time'][:][self.ds['time'][:] < self.inertial_time[0]])
 			start_idx = np.argmin(np.abs(self.inertial_time - self.ds['time'][:][offset]))
-
-		for i, t in tqdm(enumerate(range(offset, len(self.ds['time']))), position=0, leave=True, desc='Averaging inertial data'):
+		if self.ds['time'] [:][-1] > self.inertial_time[-1] :
+			end = len(self.ds['time'][:][self.ds['time'][:] <= self.inertial_time[-1]])
+		for i, t in tqdm(enumerate(range(offset, min(end, len(self.ds['time'])))), position=0, leave=True, desc='Averaging inertial data'):
 			lind = int(start_idx + i*(self.dt / self.inertial_dt))
 			hind = lind + int(N / self.inertial_dt) + 1
 			self.P_moy[t] = np.nanmean(self.P[lind:hind])
@@ -161,14 +162,14 @@ class Inertial(Wrapper):
 			self.M_moy[t] = list(np.nanmean(self.M[:, lind:hind], axis = 1))
 			self.activity[t] = np.sqrt(np.sum(np.nanvar(self.A[:, lind:hind], axis = 1)))
 			
-		self.A_moy, self.M_moy, self.P_moy, self.activity = np.array(A_moy).T, np.array(M_moy).T, np.array(P_moy), np.array(activity)
+		self.A_moy, self.M_moy, self.P_moy, self.activity = np.array(self.A_moy).T, np.array(self.M_moy).T, np.array(self.P_moy), np.array(self.activity)
 
 		#Normalization of acceleration data 
 		A_norm = np.sqrt(np.sum(self.A_moy**2, axis = 0))
 		self.A_moy = self.A_moy/A_norm		
 
 		#Get local inclination angle for study period and area
-		adjust_declination = self.declination(self.t_moy) * np.pi / 180
+		adjust_declination = self.declination(self.ds['time'][:].data) * np.pi / 180
 
 		#Create dP array of correct size by adding slight offset
 		self.dP = np.concatenate((np.zeros((1)), self.P_moy[1:] - self.P_moy[:-1]))
@@ -184,7 +185,7 @@ class Inertial(Wrapper):
 		if self.ponderation == 'angle':
 			ponderation = np.cos(self.elevation_angle)
 		elif self.ponderation == 'speed': #HORIZONTAL SPEED PONDERATION
-			ponderation = abs(np.concatenate(([0], (self.P_moy[1:]-self.P_moy[:-1])/(self.t_moy[1:]-self.t_moy[:-1]))) / np.tan(self.elevation_angle))
+			ponderation = abs(np.concatenate(([0], (self.P_moy[1:]-self.P_moy[:-1])/(self.ds['time'][:][1:]-self.ds['time'][:][:-1]))) / np.tan(self.elevation_angle))
 			ponderation[abs(self.elevation_angle) < 5 * np.pi / 180] = np.nan
 			ponderation[1:][abs(self.P_moy[1:]-self.P_moy[:-1]) < 0.2] = np.nan
 		else :
