@@ -136,6 +136,13 @@ class Inertial(Wrapper):
 		return self.forward(overwrite = overwrite)
 	
 	def forward(self, overwrite = True, N = None):
+		"""
+		Processes inertial data, normalizes them, computes euler angles and posture, and updates a NetCDF dataset with the results.
+		Parameters
+		----------
+		overwrite : bool
+		A flag indicating whether to overwrite existing variables in the NetCDF dataset.
+		"""
 		
 		self.compute_angles(N)
 		
@@ -180,10 +187,37 @@ class Inertial(Wrapper):
 			vertical_azimuth.long_name = 'Vertical azimuth angle of the animal in radians'
 			vertical_azimuth.measure = 'Angle measured counter-clockwise from the East, relative to the belly-back axis when animal is upright'
 			vertical_azimuth.ponderation = 'None'
-			vertical_azimuth[:] = self.rotation
+			vertical_azimuth[:] = self.vertical_azimuth
 			
 		
 	def compute_angles(self, N = None) :
+		"""
+		Compute and average various orientation angles (elevation angle, bank angle, azimuth, and vertical azimuth) 
+		over a specified time interval. Additionally, calculates the mean azimuth and rotation of the animal, 
+		adjusting for magnetic declination.
+		Based on : Benhamou, 2023, Of heading, posture and body rotations derived from data acquired by animal-borne accelerometers, magnetometers and gyrometers, kernel density estimation of the corresponding spherical distributions, and fine-scale movement reconstruction 
+		https://doi.org/10.48550/arXiv.2310.05820
+		
+		Parameters
+		----------
+		N : float, optional
+		The time interval (in seconds) over which to average the inertial data. If not provided, defaults to the class attribute `self.dt`.
+		
+		This method performs the following steps:
+		1. Switches the reference frame to the North-East-Down (NED) coordinate system.
+		2. Averages the inertial data (acceleration, magnetic field, pressure) over the specified 
+		interval `N` for each timestep in the reference time.
+		3. Computes the local magnetic declination and adjusts the angles accordingly.
+		4. Calculates the elevation angle, bank angle, azimuth, and vertical azimuth based on 
+		the averaged inertial data.
+		5. Computes a weighted mean azimuth over the study period, with optional ponderation based on 
+		angle or speed.
+		6. Switches the reference frame back to its default state.
+		
+		Notes
+		-----
+		- The method assumes that the `self.ds['time']` and `self.inertial_time` arrays are POSIX timestamps epochs.
+		"""
 		
 		if not N :
 			N = self.dt
