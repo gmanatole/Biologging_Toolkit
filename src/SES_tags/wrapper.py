@@ -112,6 +112,66 @@ class Wrapper():
 			lat[:] = lat_data
 			lon[:] = lon_data
 
+
+	def create_variable(self, var_name, var_data, time_data, overwrite=False, **kwargs):
+		"""
+		Create or update a variable in the dataset.
+		This method creates a new variable or updates an existing one with the provided data and metadata attributes.
+		It also checks that the input time data matches the existing time data in the dataset.
+
+		Parameters
+		----------
+		var_name : str
+		The name of the variable to create or update.
+		var_data : array-like
+		The data to store in the variable. Should be an array-like structure of values.
+		time_data : array-like
+		The time data corresponding to the variable data. Should match the existing time data in the dataset.
+		overwrite : bool, optional
+		If True, any existing variable with the same name will be removed before creating the new one. Defaults to False.
+		**kwargs : dict, optional
+		Additional attributes for the variable. For example, `units='units'`, `long_name='Variable Name'`.
+		"""
+
+		# Ensure time data matches existing time data in the dataset
+		if 'time' in self.ds.variables:
+			existing_time = self.ds['time'][:]
+			if not np.array_equal(existing_time, time_data):
+				raise ValueError("Input time data does not match the existing time data in the dataset.")
+		else:
+			raise ValueError("The dataset does not contain a 'time' variable.")
+
+		# Overwrite the variable if it already exists
+		if overwrite and var_name in self.ds.variables:
+			self.remove_variable(var_name)
+
+		# Create the dimension for time if not already present
+		if 'time' not in self.ds.dimensions:
+			self.ds.createDimension('time', len(time_data))
+
+		# Create or update the variable
+		if var_name not in self.ds.variables:
+			var = self.ds.createVariable(var_name, np.float32, ('time',))
+			var_attrs = {
+				'units': 'unknown',
+				'long_name': var_name
+				}
+			var_attrs.update(kwargs)
+			for attr_name, attr_value in var_attrs.items():
+				setattr(var, attr_name, attr_value)
+			var[:] = var_data
+		else:
+			raise ValueError(f"Variable '{var_name}' already exists in the dataset. Use `overwrite=True` to replace it.")
+
+		# Assign time data to the 'time' variable if not already present
+		if 'time' not in self.ds.variables:
+			time_var = self.ds.createVariable('time', np.float64, ('time',))
+			time.units = 'seconds since 1970-01-01 00:00:00 UTC'
+			time.long_name = 'POSIX timestamp'
+			time.calendar = 'standard'
+			time[:] = time_data
+
+
 	def remove_variable(self, var_name: str):
 		"""
 		Removes a specified variable from the NetCDF dataset.
