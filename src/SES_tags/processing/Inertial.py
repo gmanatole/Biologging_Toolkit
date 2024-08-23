@@ -102,7 +102,7 @@ class Inertial(Wrapper):
 			scipy.interpolate.interp1d: A function that interpolates declination data based on time.
 		"""	
 		if isinstance(self._declination, str):
-			if self._declination == 'compute':
+			if self._declination == 'download':
 				# Case where _declination is 'compute'
 				dec_time = self.ds['time'][:].data[:: int(24*3600/self.dt/2)]  # We only need about one declination data every twelve hours
 				dec_lat = self.ds['lat'][:].data[:: int(24*3600/self.dt/2)]

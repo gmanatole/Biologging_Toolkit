@@ -1,6 +1,7 @@
 import netCDF4 as nc
 import os
 import numpy as np
+from scipy.interpolate import interp1d
 
 class Wrapper():
 
@@ -80,7 +81,7 @@ class Wrapper():
 			time.calendar = 'standard'
 			time[:] = time_data
 
-	def create_gps(self, lat_data, lon_data, overwrite = False):
+	def create_gps(self, lat_data, lon_data, time_data = None, overwrite = False):
 		"""
 		Create or update the 'lat' and 'lon' variables in the dataset.
 		This method creates new 'lat' and 'lon' dimensions and variables, or updates existing ones, with the provided latitude and longitude data.
@@ -91,22 +92,30 @@ class Wrapper():
 			The latitude data to store in the 'lat' variable. Should be an array-like structure of float values.
 		lon_data : array-like
 			The longitude data to store in the 'lon' variable. Should be an array-like structure of float values.
+		time_data : array-like, optional
+			Time data corresponding to the lat, lon data in POSIX timestamps. If None, defaults to the dataset's main time data
 		overwrite : bool, optional
 			If True, any existing 'lat' and 'lon' variables will be removed before creating the new ones. Defaults to False.
 		"""
+		if time_data is None:
+			assert len(self.ds['time'][:].data) == len(lat_data), 'Please provide the timestamps for the position data'
+			time_data = self.ds['time'][:].data
+			
 		if overwrite :
 			if 'lat' in self.ds.variables:
 				self.remove_variable('lat')
 			if 'lon' in self.ds.variables:
 				self.remove_variable('lon')
+		
+		if len(time_data) != len(self.ds['time']) :
+			lat_data = interp1d(time_data, lat_data, bounds_error=False, fill_value=np.nan)(self.ds['time'][:].data)
+			lon_data = interp1d(time_data, lon_data, bounds_error=False, fill_value=np.nan)(self.ds['time'][:].data)
 
 		if ('lat' not in self.ds.variables) & ('lon' not in self.ds.variables):
-			lat_dim = self.ds.createDimension('lat', len(lat_data))     # latitude axis
-			lon_dim = self.ds.createDimension('lon', len(lon_data))    # longitude axis
-			lat = self.ds.createVariable('lat', np.float32, ('lat',))
+			lat = self.ds.createVariable('lat', np.float32, ('time',))
 			lat.units = 'decimal degrees north'
 			lat.long_name = 'latitude'
-			lon = self.ds.createVariable('lon', np.float32, ('lon',))
+			lon = self.ds.createVariable('lon', np.float32, ('time',))
 			lon.units = 'decimal degrees east'
 			lon.long_name = 'longitude'
 			lat[:] = lat_data
