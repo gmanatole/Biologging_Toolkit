@@ -10,6 +10,8 @@ import pdb
 
 class Inertial(Wrapper):
 	
+	self.N = None
+	
 	def __init__(
 		self, 
 		ind, 
@@ -135,7 +137,7 @@ class Inertial(Wrapper):
 	def __call__(self, overwrite = False):
 		return self.forward(overwrite = overwrite)
 	
-	def forward(self, overwrite = True, N = None):
+	def forward(self, overwrite = True):
 		"""
 		Processes inertial data, normalizes them, computes euler angles and posture, and updates a NetCDF dataset with the results.
 		Parameters
@@ -144,7 +146,7 @@ class Inertial(Wrapper):
 		A flag indicating whether to overwrite existing variables in the NetCDF dataset.
 		"""
 		
-		self.compute_angles(N)
+		self.compute_angles(overwrite = overwrite)
 		
 		if overwrite :
 			if 'azimuth' in self.ds.variables:
@@ -190,7 +192,7 @@ class Inertial(Wrapper):
 			vertical_azimuth[:] = self.vertical_azimuth
 			
 		
-	def compute_angles(self, N = None) :
+	def compute_angles(self) :
 		"""
 		Compute and average various orientation angles (elevation angle, bank angle, azimuth, and vertical azimuth) 
 		over a specified time interval. Additionally, calculates the mean azimuth and rotation of the animal, 
@@ -219,8 +221,8 @@ class Inertial(Wrapper):
 		- The method assumes that the `self.ds['time']` and `self.inertial_time` arrays are POSIX timestamps epochs.
 		"""
 		
-		if not N :
-			N = self.dt
+		if not self.N :
+			self.N = self.dt
 	
 		self.change_axes()   #Switch axis to NED
 		self.A_moy = np.full((len(self.ds['time']),3), np.nan)
@@ -237,7 +239,7 @@ class Inertial(Wrapper):
 			end = len(self.ds['time'][:][self.ds['time'][:] <= self.inertial_time[-1]])
 		for i, t in tqdm(enumerate(range(offset, min(end, len(self.ds['time'])))), position=0, leave=True, desc='Averaging inertial data'):
 			lind = int(start_idx + i*(self.dt / self.inertial_dt))
-			hind = lind + int(N / self.inertial_dt) + 1
+			hind = lind + int(self.N / self.inertial_dt) + 1
 			self.P_moy[t] = np.nanmean(self.P[lind:hind])
 			self.A_moy[t] = list(np.nanmean(self.A[:, lind:hind], axis = 1))
 			self.M_moy[t] = list(np.nanmean(self.M[:, lind:hind], axis = 1))
