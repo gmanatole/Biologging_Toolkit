@@ -1,6 +1,96 @@
 import numpy as np
 from scipy import signal
 from sklearn.cluster import KMeans
+from SES_tags.wrapper import Wrapper
+
+class Jerk(Wrapper):
+	
+	threshold = 200
+	blank = 5
+	duration = None
+	
+	def __init__(self) :
+		pass
+	
+		#Remove surface data
+		self.jerk = data['J'][:]
+		self.jerk= self.jerk[data['P'][:].data < 20]
+	
+
+	def get_peaks(self):
+		"""
+		Determine the start sample of peaks that are above the threshold.
+		
+		Parameters :
+		----------
+		x : numpy array
+			Input signal.
+		fs : float
+			Sampling frequency.
+		thresh : float
+			Threshold value to detect peaks.
+		blanking : int or float
+			Blanking criterion in seconds. 
+		duration : int or float, optional
+			Minimum duration of the peak in seconds. Default value is None.
+		"""
+		
+		self.blanking *= self.fs
+		self.duration *= self.fs
+		
+		self.peaks = {}
+		
+		dxx = np.diff((self.jerk >= self.threshold).astype(int))
+		cc = np.where(dxx > 0)[0] + 1
+		
+		# Find ending sample of each peak
+		coff = np.where(dxx < 0)[0] + 1
+		cend = np.full(len(cc), len(self.jerk))
+		for k in range(len(cc)):
+			kends = np.where(coff > cc[k])[0]
+			if len(kends) > 0:
+				cend[k] = coff[kends[0]]
+		
+		# Eliminate detections which do not meet blanking criterion
+		# Merge pulses that are within blanking distance
+		done = False
+		while not done:
+			kg = np.where(cc[1:] - cend[:-1] > self.blanking)[0]
+			done = len(kg) == (len(cc) - 1)
+			cc = cc[np.concatenate(([0], kg + 1))]
+			cend = cend[np.concatenate((kg, [len(cend) - 1]))]
+		
+		if cend[-1] == len(self.jerk):
+			cc = cc[:-1]
+			cend = cend[:-1]
+		
+		# Remove peaks shorter than duration attribute
+		if self.duration :
+			k = np.where(cend - cc >= self.duration)[0]
+			cc = cc[k]
+			cend = cend[k]
+			minlen = self.duration / self.fs
+		else:
+			minlen = 1 / self.fs
+		
+		# Determine the time and maximum of each peak
+		peak_time = np.zeros(len(cc))
+		peak_max = np.zeros(len(cc))
+		for a in range(len(cc)):
+			segment = self.jerk[cc[a]:cend[a]]
+			index = np.argmax(segment)
+			peak_time[a] = index + cc[a]
+			peak_max[a] = np.max(segment)
+		
+		self.peaks['start_time'] = cc / self.fs
+		self.peaks['end_time'] = cend / self.fs
+		self.peaks['maxtime'] = peak_time / self.fs
+		self.peaks['max'] = peak_max
+		self.peaks['thresh'] = self.threshold
+		self.peaks['bktime'] = self.blanking / self.fs
+		self.peaks['minlen'] = minlen
+		
+
 
 class Jerk:
 
