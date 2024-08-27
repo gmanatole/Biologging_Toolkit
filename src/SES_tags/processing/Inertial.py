@@ -69,13 +69,13 @@ class Inertial(Wrapper):
         )
 		if inertial_path :
 			sens = nc.Dataset(inertial_path)
-			depth, self.inertial_dt, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
-			self.inertial_time = np.linspace(0, len(depth), len(depth))*self.inertial_dt+depth_start    #Create time array for sens data
+			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
+			self.inertial_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start    #Create time array for sens data
 			self.M, self.A, self.P = sens['M'][:].data, sens['A'][:].data, sens['P'][:].data
 		elif data['A'] is not None and data['M'] is not None and data['time'] is not None :
 			self.M, self.A, self.P = data['M'], data['A'], data['P']
 			self.inertial_time = data['time']
-			self.inertial_dt = self.inertial_time[1]-self.inertial_time[0]
+			self.samplerate = self.inertial_time[1]-self.inertial_time[0]
 
 		self._declination = declination   #Fetch declination data in existing dataframe
 		self.flip = flip #Correct axis orientation to fit with NED system used by equations in rest of code
@@ -238,8 +238,8 @@ class Inertial(Wrapper):
 		if self.ds['time'] [:][-1] > self.inertial_time[-1] :
 			end = len(self.ds['time'][:][self.ds['time'][:] <= self.inertial_time[-1]])
 		for i, t in tqdm(enumerate(range(offset, min(end, len(self.ds['time'])))), position=0, leave=True, desc='Averaging inertial data'):
-			lind = int(start_idx + i*(self.dt / self.inertial_dt))
-			hind = lind + int(self.N / self.inertial_dt) + 1
+			lind = int(start_idx + i*(self.dt / self.samplerate))
+			hind = lind + int(self.N / self.samplerate) + 1
 			self.P_moy[t] = np.nanmean(self.P[lind:hind])
 			self.A_moy[t] = list(np.nanmean(self.A[:, lind:hind], axis = 1))
 			self.M_moy[t] = list(np.nanmean(self.M[:, lind:hind], axis = 1))

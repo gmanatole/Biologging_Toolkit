@@ -8,7 +8,7 @@ from datetime import datetime
 class Jerk(Wrapper):
 	
 	threshold = 200
-	blank = 5
+	blanking = 5
 	duration = None
 	
 	def __init__(self, 
@@ -16,7 +16,7 @@ class Jerk(Wrapper):
 			  *,
 			  path,
 			  sens_path,
-			  data = {'time': None, 'A' : None, 'M' : None, 'P' : None}
+			  data = {'time': None, 'jerk' : None, 'P' : None}
 			  ) :
 		
 		super().__init__(
@@ -26,21 +26,22 @@ class Jerk(Wrapper):
 		
 		if sens_path :
 			data = nc.Dataset(sens_path)
-			self.jerk = data['J'][:]
+			self.jerk = data['J'][:].data
 			self.P = data['P'][:].data
 			self.sens_time = datetime.strptime(data.dephist_deploy_datetime_start, '%Y/%m/%d %H:%M:%S').timestamp() + np.arange(0, len(self.jerk)/5, 0.2)
 		elif data['A'] is not None and data['M'] is not None and data['time'] is not None :
 			self.sens_time, self.jerk, self.P = data['time'], data['jerk'], data['P']
-		self.sens_dt = self.sens_time[1]-self.sens_time[0]
+		self.samplerate = 1 / (self.sens_time[1]-self.sens_time[0])
+		
+		#Make P the same length as jerk
+		self.P = np.pad(self.P[:len(self.jerk)], (0, max(0, len(self.jerk) - len(self.P))), constant_values=np.nan)
 		
 		#Remove surface data
-		self.jerk= self.jerk[self.depth < 20]
+		self.jerk[self.P >= 20] = np.nan
 	
 	
 	def forward(self):
-		self.get_peaks(self.jerk, 1/self.sens_dt, self.threshold, self.blank, self.duration)
-		self.peaks['duration'] = self.peaks['end_time'] - self.peaks['start_time']
-		self.peaks['depth'] = self.P.data(round(self.peaks['start_time']/self.sens_dt)) # jerks times are in second
+		self.get_peaks()
 		peak_times = self.sens_time[0] + self.peaks['start_time']
 		self.peaks['datetime'] = list(map(peak_times, lambda x : datetime.fromtimestamp(x)))
 
@@ -64,11 +65,13 @@ class Jerk(Wrapper):
 			Minimum duration of the peak in seconds. Default value is None.
 		"""
 		
-		self.blanking *= self.fs
-		self.duration *= self.fs
-		
 		self.peaks = {}
+		self.peaks['bktime'] = self.blanking
+
+		#Go from seconds to number of bins
+		self.blanking *= self.samplerate
 		
+		#Find jerk peaks above threshold
 		dxx = np.diff((self.jerk >= self.threshold).astype(int))
 		cc = np.where(dxx > 0)[0] + 1
 		
@@ -80,8 +83,7 @@ class Jerk(Wrapper):
 			if len(kends) > 0:
 				cend[k] = coff[kends[0]]
 		
-		# Eliminate detections which do not meet blanking criterion
-		# Merge pulses that are within blanking distance
+		# Eliminate detections which do not meet blanking criterion & merge pulses that are within blanking distance
 		done = False
 		while not done:
 			kg = np.where(cc[1:] - cend[:-1] > self.blanking)[0]
@@ -95,12 +97,13 @@ class Jerk(Wrapper):
 		
 		# Remove peaks shorter than duration attribute
 		if self.duration :
+			self.duration *= self.samplerate
 			k = np.where(cend - cc >= self.duration)[0]
 			cc = cc[k]
 			cend = cend[k]
-			minlen = self.duration / self.fs
+			minlen = self.duration / self.samplerate
 		else:
-			minlen = 1 / self.fs
+			minlen = 1 / self.samplerate
 		
 		# Determine the time and maximum of each peak
 		peak_time = np.zeros(len(cc))
@@ -111,16 +114,16 @@ class Jerk(Wrapper):
 			peak_time[a] = index + cc[a]
 			peak_max[a] = np.max(segment)
 		
-		self.peaks['start_time'] = cc / self.fs
-		self.peaks['end_time'] = cend / self.fs
-		self.peaks['maxtime'] = peak_time / self.fs
+		self.peaks['start_time'] = cc / self.samplerate  #in seconds
+		self.peaks['end_time'] = cend / self.samplerate  #in seconds
+		self.peaks['maxtime'] = peak_time / self.samplerate  #in seconds
 		self.peaks['max'] = peak_max
 		self.peaks['thresh'] = self.threshold
-		self.peaks['bktime'] = self.blanking / self.fs
 		self.peaks['minlen'] = minlen
-		
+		self.peaks['duration'] = self.peaks['end_time'] - self.peaks['start_time']
+		self.peaks['depth'] = self.P[cc]
 
-class Jerk:
+'''class Jerk:
 
     def __init__(self, x, x2, fs=16, fc=2.64, timeDays=0):
         self.x = np.array(x) if not isinstance(x, np.ndarray) else x
@@ -281,3 +284,4 @@ pcab = PreyCatchAttemptBehaviours(x=data, x2=data['segmentID'])
 result = pcab.process()
 print(result)
 
+'''
