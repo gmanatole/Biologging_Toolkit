@@ -16,7 +16,16 @@ class Acoustic(Wrapper):
 	for data and spectrogram normalization.
 	"""
 
-	def __init__(self, ind, *, path, timestamp, wav_path = None, data_normalization : str = 'instrument', spectro_normalization : str = 'density', **kwargs):
+	def __init__(self,
+			  depid,
+			  *,
+			  path,
+			  timestamp,
+			  wav_path = None,
+			  data_normalization : str = 'instrument',
+			  spectro_normalization : str = 'density',
+			  **kwargs
+			  ):
 		"""
 		Initializes the Acoustic class.
 
@@ -41,7 +50,7 @@ class Acoustic(Wrapper):
 		
 
 		super().__init__(
-			ind,
+			depid,
 			path
         )
 		

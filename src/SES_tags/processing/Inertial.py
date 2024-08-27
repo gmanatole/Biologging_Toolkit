@@ -14,7 +14,7 @@ class Inertial(Wrapper):
 	
 	def __init__(
 		self, 
-		ind, 
+		depid, 
 		*, 
 		path, 
 		inertial_path : str = None,
@@ -28,7 +28,7 @@ class Inertial(Wrapper):
 
         Parameters
         ----------
-        ind : str
+        depid : str
             Identifier corresponding to the individual for whom data is being loaded (e.g., 'ml17_280a').
         path : str
             The path to the main dataset file required by the superclass `Wrapper`.
@@ -64,7 +64,7 @@ class Inertial(Wrapper):
         '''
 		
 		super().__init__(
-			ind,
+			depid,
 			path
         )
 		if inertial_path :

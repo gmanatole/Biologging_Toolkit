@@ -9,13 +9,13 @@ class Wrapper():
 
 	def __init__(
 		self, 
-		ind : str = None,
+		depid : str = None,
 		path : str = None,
 	):
 		"""
 		Parameters
 		----------
-		ind : 'str'
+		depid : 'str'
 			str describing a unique individual (eg. ml17_280a). Defaults to None.
 		path : 'str'
 			Path to directory where final dataset will be saved. Defaults to current working directory.
@@ -23,13 +23,13 @@ class Wrapper():
 			Timestep for entire dataset. Please choose N carefully, for instance computing Euler angles using inertial data requires N between 2 and 5. 
 		"""
 
-		self.ind = ind
+		self.depid = depid
 		self.path = path if path else os.getcwd()
-		assert isinstance(self.ind, str), "Please specify an individual"
+		assert isinstance(self.depid, str), "Please specify an individual"
 
 		#Check if individual file already exists, if not create it
-		mode='a' if os.path.exists(os.path.join(self.path, self.ind + '.nc')) else 'w'
-		self.ds = nc.Dataset(os.path.join(self.path, self.ind + '.nc'), mode = mode)
+		mode='a' if os.path.exists(os.path.join(self.path, self.depid + '.nc')) else 'w'
+		self.ds = nc.Dataset(os.path.join(self.path, self.depid + '.nc'), mode = mode)
 		self.ds.sampling_rate = self.dt
 		self.ds.sampling_rate_units = 'Seconds'
 		self.dataset_name
@@ -38,12 +38,12 @@ class Wrapper():
 	def dataset_name(self) :
 		"""
 		Get or set the dataset title and subtitle.
-		The title and subtitle of the NetCDF dataset are set based on the instance's `ind` and `dt` attributes.
+		The title and subtitle of the NetCDF dataset are set based on the instance's `depid` and `dt` attributes.
 		"""
 		title = getattr(self.ds, 'title', None)
 		if title is None:
-			self.ds.title = f"Processed dataset for {self.ind}"
-			self.ds.subtitle = f"NetCDF structure storing processed data from the {self.ind} individual using a {self.dt} s timestep"
+			self.ds.title = f"Processed dataset for {self.depid}"
+			self.ds.subtitle = f"NetCDF structure storing processed data from the {self.depid} individual using a {self.dt} s timestep"
 		return title
 
 	@dataset_name.setter
@@ -174,7 +174,7 @@ class Wrapper():
 
 		# Assign time data to the 'time' variable if not already present
 		if 'time' not in self.ds.variables:
-			time_var = self.ds.createVariable('time', np.float64, ('time',))
+			time = self.ds.createVariable('time', np.float64, ('time',))
 			time.units = 'seconds since 1970-01-01 00:00:00 UTC'
 			time.long_name = 'POSIX timestamp'
 			time.calendar = 'standard'
@@ -193,7 +193,7 @@ class Wrapper():
 		"""
 		if var_name in self.ds.variables:
 			# Create a new dataset and copy the variables excluding the one to remove
-			new_file_path = os.path.join(self.path, self.ind + '_new.nc')
+			new_file_path = os.path.join(self.path, self.depid + '_new.nc')
 			with nc.Dataset(new_file_path, 'w', format='NETCDF4') as new_ds:
 				# Copy dimensions
 				for name, dimension in self.ds.dimensions.items():
@@ -210,8 +210,8 @@ class Wrapper():
 
 		# Replace old file with new file
 		self.ds.close()
-		os.rename(new_file_path, os.path.join(self.path, self.ind + '.nc'))
-		self.ds = nc.Dataset(os.path.join(self.path, self.ind + '.nc'), mode='a', format='NETCDF4')
+		os.rename(new_file_path, os.path.join(self.path, self.depid + '.nc'))
+		self.ds = nc.Dataset(os.path.join(self.path, self.depid + '.nc'), mode='a', format='NETCDF4')
 
 
 

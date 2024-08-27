@@ -2,6 +2,8 @@ import numpy as np
 from scipy import signal
 from sklearn.cluster import KMeans
 from SES_tags.wrapper import Wrapper
+import netCDF4 as nc
+from datetime import datetime
 
 class Jerk(Wrapper):
 	
@@ -9,18 +11,45 @@ class Jerk(Wrapper):
 	blank = 5
 	duration = None
 	
-	def __init__(self) :
-		pass
-	
+	def __init__(self, 
+			  depid, 
+			  *,
+			  path,
+			  sens_path,
+			  data = {'time': None, 'A' : None, 'M' : None, 'P' : None}
+			  ) :
+		
+		super().__init__(
+			depid,
+			path
+        )
+		
+		if sens_path :
+			data = nc.Dataset(sens_path)
+			self.jerk = data['J'][:]
+			self.P = data['P'][:].data
+			self.sens_time = datetime.strptime(data.dephist_deploy_datetime_start, '%Y/%m/%d %H:%M:%S').timestamp() + np.arange(0, len(self.jerk)/5, 0.2)
+		elif data['A'] is not None and data['M'] is not None and data['time'] is not None :
+			self.sens_time, self.jerk, self.P = data['time'], data['jerk'], data['P']
+		self.sens_dt = self.sens_time[1]-self.sens_time[0]
+		
 		#Remove surface data
-		self.jerk = data['J'][:]
-		self.jerk= self.jerk[data['P'][:].data < 20]
+		self.jerk= self.jerk[self.depth < 20]
 	
+	
+	def forward(self):
+		self.get_peaks(self.jerk, 1/self.sens_dt, self.threshold, self.blank, self.duration)
+		self.peaks['duration'] = self.peaks['end_time'] - self.peaks['start_time']
+		self.peaks['depth'] = self.P.data(round(self.peaks['start_time']/self.sens_dt)) # jerks times are in second
+		peak_times = self.sens_time[0] + self.peaks['start_time']
+		self.peaks['datetime'] = list(map(peak_times, lambda x : datetime.fromtimestamp(x)))
+
+
 
 	def get_peaks(self):
 		"""
 		Determine the start sample of peaks that are above the threshold.
-		
+
 		Parameters :
 		----------
 		x : numpy array
@@ -91,7 +120,6 @@ class Jerk(Wrapper):
 		self.peaks['minlen'] = minlen
 		
 
-
 class Jerk:
 
     def __init__(self, x, x2, fs=16, fc=2.64, timeDays=0):
@@ -155,13 +183,7 @@ class Jerk:
         self.apply_kmeans()
         return self.combine_data()
 
-
-
-
-import numpy as np
 import pandas as pd
-from scipy import signal
-from sklearn.cluster import KMeans
 
 class PreyCatchAttemptBehaviours:
     def __init__(self, x, x2, fs=16, fc=2.64, timeDays=0):
