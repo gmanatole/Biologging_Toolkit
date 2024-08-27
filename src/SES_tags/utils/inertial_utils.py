@@ -3,6 +3,15 @@ import numpy as np
 import requests
 import xml.etree.ElementTree as ET
 
+
+def norm(X):
+	m, n = X.shape
+	if m == 1 or n == 1:
+	    v = np.linalg.norm(X)
+	else:
+	    v = np.sqrt(np.abs(X)**2 @ np.ones((n, 1)))
+	return v
+
 def get_start_date(x) :
 	return datetime.strptime(x, '%Y/%m/%d %H:%M:%S').timestamp()
 
