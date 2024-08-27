@@ -46,6 +46,26 @@ class Jerk(Wrapper):
 		self.peaks['datetime'] = list(map(peak_times, lambda x : datetime.fromtimestamp(x)))
 
 
+	# Function taken from animaltags Python package
+	def njerk(A, sampling_rate):
+		if isinstance(A, dict):
+			sampling_rate = A["sampling_rate"]
+			a = A["data"]
+			j = A.copy()
+			j["data"] = np.concatenate((sampling_rate * np.sqrt(np.sum(np.diff(a, axis=0)**2, axis=1)), [0]))
+			j["creation_date"] = datetime.now().isoformat()
+			j["type"] = "njerk"
+			j["full_name"] = "norm jerk"
+			j["description"] = j["full_name"]
+			j["unit"] = "m/s3"
+			j["unit_name"] = "meters per seconds cubed"
+			j["unit_label"] = "m/s^3"
+			j["column_name"] = "jerk"
+		else:
+			a = A
+			j = sampling_rate * np.concatenate((np.sqrt(np.sum(np.diff(a, axis=0)**2, axis=1)), [0]))
+		
+		return j
 
 	def get_peaks(self):
 		"""
