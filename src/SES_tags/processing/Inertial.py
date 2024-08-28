@@ -10,7 +10,7 @@ import pdb
 
 class Inertial(Wrapper):
 	
-	self.N = None
+	N = None
 	
 	def __init__(
 		self, 
@@ -137,6 +137,7 @@ class Inertial(Wrapper):
 	def __call__(self, overwrite = False):
 		return self.forward(overwrite = overwrite)
 	
+	
 	def forward(self, overwrite = True):
 		"""
 		Processes inertial data, normalizes them, computes euler angles and posture, and updates a NetCDF dataset with the results.
@@ -206,7 +207,7 @@ class Inertial(Wrapper):
 		The time interval (in seconds) over which to average the inertial data. If not provided, defaults to the class attribute `self.dt`.
 		
 		This method performs the following steps:
-		1. Switches the reference frame to the North-East-Down (NED) coordinate system.
+		1. Switches the reference frame to the East-North-UP (ENU) coordinate system.
 		2. Averages the inertial data (acceleration, magnetic field, pressure) over the specified 
 		interval `N` for each timestep in the reference time.
 		3. Computes the local magnetic declination and adjusts the angles accordingly.
@@ -229,6 +230,7 @@ class Inertial(Wrapper):
 		self.M_moy = np.full((len(self.ds['time']),3), np.nan)
 		self.P_moy = np.full(len(self.ds['time']), np.nan)  
 		self.activity = np.full(len(self.ds['time']), np.nan)
+		
 		if self.ds['time'][:][0] >= self.inertial_time[0] :
 			offset = 0
 			start_idx = np.argmin(np.abs(self.inertial_time - self.ds['time'][:][0]))
@@ -237,7 +239,10 @@ class Inertial(Wrapper):
 			start_idx = np.argmin(np.abs(self.inertial_time - self.ds['time'][:][offset]))
 		if self.ds['time'] [:][-1] > self.inertial_time[-1] :
 			end = len(self.ds['time'][:][self.ds['time'][:] <= self.inertial_time[-1]])
-		for i, t in tqdm(enumerate(range(offset, min(end, len(self.ds['time'])))), position=0, leave=True, desc='Averaging inertial data'):
+		else :
+			end = len(self.ds['time'])
+			
+		for i, t in tqdm(enumerate(range(offset, end)), position=0, leave=True, desc='Averaging inertial data'):
 			lind = int(start_idx + i*(self.dt / self.samplerate))
 			hind = lind + int(self.N / self.samplerate) + 1
 			self.P_moy[t] = np.nanmean(self.P[lind:hind])

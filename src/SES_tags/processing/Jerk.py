@@ -3,7 +3,7 @@ from glob import glob
 import os
 from SES_tags.wrapper import Wrapper
 import netCDF4 as nc
-from datetime import datetime
+from datetime import datetime, timezone
 from SES_tags.utils.inertial_utils import * 
 from SES_tags.utils.format_utils import *
 import soundfile as sf
@@ -36,7 +36,7 @@ class Jerk(Wrapper):
 			self.A = data['A'][:].data
 			self.M = data['M'][:].data
 			length = np.max([len(self.jerk), self.A.shape[1], self.M.shape[1], len(self.P)])
-			self.sens_time = datetime.strptime(data.dephist_deploy_datetime_start, '%Y/%m/%d %H:%M:%S').timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
+			self.sens_time = datetime.strptime(data.dephist_deploy_datetime_start, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
 			self.A_cal_poly = data['A'].cal_poly[:].reshape(2, 3)
 			self.A_cal_map = data['A'].cal_map[:].reshape(3, 3)
 			self.M_cal_poly = data['M'].cal_poly[:].reshape(-1, 3)
@@ -89,11 +89,11 @@ class Jerk(Wrapper):
 
 		Parameters :
 		----------
-		x : numpy array
-			Input signal.
-		fs : float
-			Sampling frequency.
-		thresh : float
+		jerk : numpy array
+			Input signal of jerk data 1D.
+		samplerate : float
+			Sampling frequency of jerk signal.
+		threshold : float
 			Threshold value to detect peaks.
 		blanking : int or float
 			Blanking criterion in seconds. 
@@ -154,15 +154,15 @@ class Jerk(Wrapper):
 		
 		self.peaks['start_time'] = cc / params['samplerate']  #in seconds
 		self.peaks['end_time'] = cend / params['samplerate']  #in seconds
-		self.peaks['maxtime'] = peak_time / params['samplerate'] #in seconds
+		self.peaks['max_time'] = peak_time / params['samplerate'] #in seconds
 		self.peaks['max'] = peak_max
 		self.peaks['threshold'] = params['threshold']
 		self.peaks['minlen'] = minlen
 		self.peaks['duration'] = self.peaks['end_time'] - self.peaks['start_time']
 		self.peaks['depth'] = self.P[cc]
-		peak_times = self.sens_time[0] + self.peaks['start_time']
+		peak_times = self.sens_time[0] + self.peaks['max_time']
 		self.peaks['datetime'] = np.array(list(map(lambda x : datetime.fromtimestamp(x), peak_times)))
-		self.peaks['timestamp'] =  np.array(list(map(lambda x : x.timestamp(), self.peaks['datetime'])))
+		self.peaks['timestamp'] =  peak_times
 
 	# Function taken from animaltags Python package
 	@staticmethod
