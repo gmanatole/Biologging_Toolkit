@@ -10,7 +10,59 @@ import soundfile as sf
 from scipy.interpolate import interp1d
 
 class Jerk(Wrapper):
+	"""
+	A class to process and analyze jerk data from sensor measurements.
 	
+	The `Jerk` class is designed to work with low-resolution (such as 5Hz data from sens file) and high-resolution (such as 50 Hz data from svw file) jerk data.
+	It identifies peaks in the jerk signal that are above a specified threshold.
+	The code is aimed to detect jerks from low-resolution data before checking them with high-resolution data.
+	
+	Attributes
+	----------
+	lr_threshold : float
+		Threshold value for detecting peaks in low-resolution jerk data (default is 200).
+	lr_blanking : float
+		Blanking criterion in seconds for low-resolution jerk data (default is 5 seconds).
+	lr_duration : float, optional
+		Minimum duration of peaks in low-resolution jerk data. Defaults to the inverse of the sampling rate.
+	hr_threshold : float
+		Threshold value for detecting peaks in high-resolution jerk data (default is 400).
+	hr_blanking : float
+		Blanking criterion in seconds for high-resolution jerk data (default is 0.25 seconds).
+	hr_duration : float
+		Minimum duration of peaks in high-resolution jerk data (default is 0.02 seconds).
+	samplerate : float
+		Sampling rate of the jerk data.
+	jerk : np.ndarray
+		The jerk data.
+	P : np.ndarray
+		Pressure data corresponding to the jerk measurements.
+	A : np.ndarray
+		Accelerometer data used for calculating jerk.
+	sens_time : np.ndarray
+		Array of POSIX timestamps (UTC) corresponding to the sensor data.
+	A_cal_poly : np.ndarray
+		Calibration polynomial for the accelerometer data.
+	A_cal_map : np.ndarray
+		Calibration map for the accelerometer data.
+	lr_peaks : dict
+		Dictionary containing peak information for low-resolution jerk data.
+	hr_peaks : dict
+		Dictionary containing peak information for high-resolution jerk data.
+	
+	Parameters
+	----------
+	depid : str
+		Deployment ID for the sensor data.
+	path : str
+		Path to the directory containing the dataset file.
+	sens_path : str
+		Path to the sensor data file.
+	data : dict, optional
+		If sens_path not provided.
+		Dictionary containing preloaded data with keys 'time', 'jerk', and 'P'. Default is {'time': None, 'jerk': None, 'P': None}.
+	"""
+
 	lr_threshold = 200
 	lr_blanking = 5
 	lr_duration = None
@@ -59,8 +111,41 @@ class Jerk(Wrapper):
 		if not self.lr_duration :
 			self.lr_duration = 1 / self.samplerate
 
-	def __call__(self) :
-		self.get_peaks()
+	def __call__(self, overwrite = False, resolution = 'high') :
+		self.low_resolution_peaks()
+		
+		if resolution == 'high' :
+			self.high_resolution_peaks()
+			peaks = self.hr_peaks
+			threshold = self.hr_threshold
+			blanking = self.hr_blanking
+			duraion = self.hr_duration
+		else :
+			peaks = self.lr_peaks
+			threshold = self.lr_threshold
+			blanking = self.lr_blanking
+			duration = self.lr_duration
+			
+		jerks = np.full(len(self.ds['time']), 0)
+		indices = np.searchsorted(self.ds['time'][:].data, peaks['timestamp'], side='right') - 1
+		jerks[indices] = peaks['max']
+		
+		if overwrite :
+			if 'jerk' in self.ds.variables:
+				self.remove_variable('jerk')
+				
+		if 'jerk' not in self.ds.variables:
+			jerk = self.ds.createVariable('jerk', np.float64, ('time',))
+			jerk.units = 'm.s**2'
+			jerk.long_name = 'High resolution jerks'
+			jerk.threshold = threshold
+			jerk.threshold_units = 'm.s**2'
+			jerk.blanking = blanking
+			jerk.blanking_units = 's'
+			jerk.duration = duration
+			jerk.duration_comment = 'Maximum duration of peaks'
+			jerk.duration_units = 's'
+			jerk[:] = jerks
 		
 	def high_resolution_peaks(self, raw_path) :
 		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
@@ -197,6 +282,10 @@ class Jerk(Wrapper):
 		
 		return jerk
 	
+	
+	
+
+
 '''class Jerk:
 
     def __init__(self, x, x2, fs=16, fc=2.64, timeDays=0):
