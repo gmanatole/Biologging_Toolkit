@@ -12,9 +12,6 @@ def norm(X):
 	    v = np.sqrt(np.abs(X)**2 @ np.ones((n, 1)))
 	return v
 
-def get_start_date(x) :
-	return datetime.strptime(x, '%Y/%m/%d %H:%M:%S').timestamp()
-
 def angular_average(angles):
     # Convert angles to Cartesian coordinates
     x_coords = [np.cos(angle) for angle in angles]
