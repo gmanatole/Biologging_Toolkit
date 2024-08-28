@@ -11,9 +11,12 @@ from scipy.interpolate import interp1d
 
 class Jerk(Wrapper):
 	
-	threshold = 200
-	blanking = 5
-	duration = None
+	lr_threshold = 200
+	lr_blanking = 5
+	lr_duration = None
+	hr_threshold = 400
+	hr_blanking = 0.25
+	hr_duration = 0.02
 	
 	def __init__(self, 
 			  depid, 
@@ -44,7 +47,7 @@ class Jerk(Wrapper):
 			self.M_cal_tseg = data['M'].cal_tseg[:]
 			self.M_cal_map = data['M'].cal_map[:].reshape(3, 3)
 			
-		elif data['A'] is not None and data['M'] is not None and data['time'] is not None :
+		elif data['time'] is not None and data['jerk'] is not None and data['P'] is not None :
 			self.sens_time, self.jerk, self.P = data['time'], data['jerk'], data['P']
 			self.samplerate = np.round(1 / (self.sens_time[1]-self.sens_time[0]), 2)
 		
@@ -53,37 +56,59 @@ class Jerk(Wrapper):
 		
 		#Remove surface data
 		self.jerk[self.P <= 20] = np.nan
-
+		if not self.lr_duration :
+			self.lr_duration = 1 / self.samplerate
 
 	def __call__(self) :
 		self.get_peaks()
 		
-	def check_fullbw(self, raw_path, hr_threshold=400) :
+	def high_resolution_peaks(self, raw_path) :
 		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
 		xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
 		xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))]
-		xml_start_time = get_start_time_xml(xml_fns)
-		for i, peak_time in enumerate(self.peaks['timestamp']) :
+		xml_start_time = get_start_date_xml(xml_fns)
+		hr_peaks = {'start_time':[],'end_time':[],'max_time':[],'max':[],'duration':[],'depth':[],'datetime':[],'timestamp':[]}		
+		for i, peak_time in enumerate(self.lr_peaks['timestamp']) :
 			fn_idx = np.argmax(xml_start_time[xml_start_time - peak_time < 0])
 			fs = sf.info(swv_fns[fn_idx]).samplerate
 			sig, fs = sf.read(swv_fns[fn_idx], 
-					 start = int((self.sens_time[0] + self.peaks['start_time'][i] - xml_start_time[fn_idx] - 1)*fs),
-					 stop = int((self.sens_time[0] + self.peaks['end_time'][i] - xml_start_time[fn_idx] + 1)*fs))
+					 start = int((self.sens_time[0] + self.lr_peaks['start_time'][i] - xml_start_time[fn_idx] - 1)*fs),
+					 stop = int((self.sens_time[0] + self.lr_peaks['end_time'][i] - xml_start_time[fn_idx] + 1)*fs))
 			A_peak = sig[:, :3]
 			A_peak = (A_peak * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
-			jerk_peak = self.njerk(A_peak, fs)
-			depth_interp = interp1d(self.sens_time, self.P, bounds_error=False, fill_value=np.nan)
-			depth_peak = depth_interp(np.linspace(self.sens_time[0] + self.peaks['start_time'][i]-1, 
-										self.sens_time[0] + self.peaks['end_time'][i]+1, 
-										len(sig)))
-			jerk_peak[depth_peak <= 20] = np.nan
+			jerk_peak = self.norm_jerk(A_peak, fs)
 			jerk_validation = self.get_peaks(jerk = jerk_peak,
 									samplerate = fs,
-									threshold = hr_threshold,
-									blanking = 0.25,
-									duration = 0.02)			
+									threshold = self.hr_threshold,
+									blanking = self.hr_blanking,
+									duration = self.hr_duration)
+			if jerk_validation is not None:
+				hr_peaks['start_time'].append(self.lr_peaks['start_time'][i])
+				hr_peaks['end_time'].append(self.lr_peaks['end_time'][i])
+				hr_peaks['max_time'].append(self.lr_peaks['max_time'][i])
+				hr_peaks['max'].append(self.lr_peaks['max'][i])
+				hr_peaks['duration'].append(self.lr_peaks['duration'][i])
+				hr_peaks['depth'].append(self.lr_peaks['depth'][i])
+				hr_peaks['datetime'].append(self.lr_peaks['datetime'][i])
+				hr_peaks['timestamp'].append(self.lr_peaks['timestamp'][i])
+		self.hr_peaks = {key: np.array(value) for key, value in hr_peaks.items()}
 
-	def get_peaks(self, **kwargs):
+	def low_resolution_peaks(self) :
+		cc, cend, peak_time, peak_max, minlen = self.get_peaks(self.jerk, self.samplerate, self.lr_blanking, self.lr_threshold, self.lr_duration)
+		self.lr_peaks = {}
+		self.lr_peaks['start_time'] = cc / self.samplerate  #in seconds
+		self.lr_peaks['end_time'] = cend / self.samplerate  #in seconds
+		self.lr_peaks['max_time'] = peak_time / self.samplerate #in seconds
+		self.lr_peaks['max'] = peak_max
+		self.lr_peaks['duration'] = self.lr_peaks['end_time'] - self.lr_peaks['start_time']
+		self.lr_peaks['depth'] = self.P[cc]
+		peak_times = self.sens_time[0] + self.lr_peaks['max_time']
+		self.lr_peaks['datetime'] = np.array(list(map(lambda x : datetime.fromtimestamp(x), peak_times)))
+		self.lr_peaks['timestamp'] =  peak_times
+		
+
+	@staticmethod
+	def get_peaks(jerk, samplerate, blanking, threshold, duration):
 		"""
 		Determine the start sample of peaks that are above the threshold.
 
@@ -101,22 +126,18 @@ class Jerk(Wrapper):
 			Minimum duration of the peak in seconds. Default value is None.
 		"""
 		
-		self.peaks = {}
-		default = {'jerk':self.jerk, 'blanking':self.blanking, 'samplerate':self.samplerate, 'threshold':self.threshold, 'duration':self.duration}
-		params = {**default, **kwargs}
-		self.peaks['blanking'] = params['blanking']
 		#Go from seconds to number of bins
-		params['blanking'] *= params['samplerate']
+		blanking *= samplerate
 		
 		#Find jerk peaks above threshold
-		dxx = np.diff((params['jerk'] >= params['threshold']).astype(int))
+		dxx = np.diff((jerk >= threshold).astype(int))
 		cc = np.where(dxx > 0)[0] + 1
 		if len(cc) == 0:
 			return None
 		
 		# Find ending sample of each peak
 		coff = np.where(dxx < 0)[0] + 1
-		cend = np.full(len(cc), len(params['jerk']))
+		cend = np.full(len(cc), len(jerk))
 		for k in range(len(cc)):
 			kends = np.where(coff > cc[k])[0]
 			if len(kends) > 0:
@@ -125,66 +146,56 @@ class Jerk(Wrapper):
 		# Eliminate detections which do not meet blanking criterion & merge pulses that are within blanking distance
 		done = False
 		while not done:
-			kg = np.where(cc[1:] - cend[:-1] > params['blanking'])[0]
+			kg = np.where(cc[1:] - cend[:-1] > blanking)[0]
 			done = len(kg) == (len(cc) - 1)
 			cc = cc[np.concatenate(([0], kg + 1))]
 			cend = cend[np.concatenate((kg, [len(cend) - 1]))]
-		if cend[-1] == len(params['jerk']):
+		if cend[-1] == len(jerk):
 			cc = cc[:-1]
 			cend = cend[:-1]
 		
 		# Remove peaks shorter than duration attribute
-		if params['duration'] :
-			params['duration'] *= params['samplerate']
-			k = np.where(cend - cc >= params['duration'])[0]
+		if duration :
+			duration *= samplerate
+			k = np.where(cend - cc >= duration)[0]
 			cc = cc[k]
 			cend = cend[k]
-			minlen = params['duration'] / params['samplerate']
+			minlen = duration / samplerate
 		else:
-			minlen = 1 / params['samplerate']
+			minlen = 1 / samplerate
 		
 		# Determine the time and maximum of each peak
 		peak_time = np.zeros(len(cc))
 		peak_max = np.zeros(len(cc))
 		for a in range(len(cc)):
-			segment = params['jerk'][cc[a]:cend[a]]
+			segment = jerk[cc[a]:cend[a]]
 			index = np.argmax(segment)
 			peak_time[a] = index + cc[a]
 			peak_max[a] = np.max(segment)
 		
-		self.peaks['start_time'] = cc / params['samplerate']  #in seconds
-		self.peaks['end_time'] = cend / params['samplerate']  #in seconds
-		self.peaks['max_time'] = peak_time / params['samplerate'] #in seconds
-		self.peaks['max'] = peak_max
-		self.peaks['threshold'] = params['threshold']
-		self.peaks['minlen'] = minlen
-		self.peaks['duration'] = self.peaks['end_time'] - self.peaks['start_time']
-		self.peaks['depth'] = self.P[cc]
-		peak_times = self.sens_time[0] + self.peaks['max_time']
-		self.peaks['datetime'] = np.array(list(map(lambda x : datetime.fromtimestamp(x), peak_times)))
-		self.peaks['timestamp'] =  peak_times
+		return cc, cend, peak_time, peak_max, minlen
 
 	# Function taken from animaltags Python package
 	@staticmethod
-	def njerk(A, sampling_rate):
+	def norm_jerk(A, sampling_rate):
 		if isinstance(A, dict):
 			sampling_rate = A["sampling_rate"]
 			a = A["data"]
-			j = A.copy()
-			j["data"] = np.concatenate((sampling_rate * np.sqrt(np.sum(np.diff(a, axis=0)**2, axis=1)), [0]))
-			j["creation_date"] = datetime.now().isoformat()
-			j["type"] = "njerk"
-			j["full_name"] = "norm jerk"
-			j["description"] = j["full_name"]
-			j["unit"] = "m/s3"
-			j["unit_name"] = "meters per seconds cubed"
-			j["unit_label"] = "m/s^3"
-			j["column_name"] = "jerk"
+			jerk = A.copy()
+			jerk["data"] = np.concatenate((sampling_rate * np.sqrt(np.sum(np.diff(a, axis=0)**2, axis=1)), [0]))
+			jerk["creation_date"] = datetime.now().isoformat()
+			jerk["type"] = "njerk"
+			jerk["full_name"] = "norm jerk"
+			jerk["description"] = jerk["full_name"]
+			jerk["unit"] = "m/s3"
+			jerk["unit_name"] = "meters per seconds cubed"
+			jerk["unit_label"] = "m/s^3"
+			jerk["column_name"] = "jerk"
 		else:
 			a = A
-			j = sampling_rate * np.concatenate((np.sqrt(np.sum(np.diff(a, axis=0)**2, axis=1)), [0]))
+			jerk = sampling_rate * np.concatenate((np.sqrt(np.sum(np.diff(a, axis=0)**2, axis=1)), [0]))
 		
-		return j
+		return jerk
 	
 '''class Jerk:
 

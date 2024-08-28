@@ -48,3 +48,4 @@ def get_start_date_xml(path) :
 				while line.find('EVENT TIME') == -1:
 					line = f.readline().strip()
 			xml_dates.append(get_xml_date(line))
+		return np.array(xml_dates)

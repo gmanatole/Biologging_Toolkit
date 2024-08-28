@@ -4,6 +4,7 @@ import pandas as pd
 from tqdm import tqdm
 from scipy.interpolate import interp1d
 from SES_tags.utils.inertial_utils import *
+from SES_tags.utils.format_utils import *
 from SES_tags.wrapper import Wrapper
 import pdb
 
@@ -69,7 +70,7 @@ class Inertial(Wrapper):
         )
 		if inertial_path :
 			sens = nc.Dataset(inertial_path)
-			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date(sens.dephist_device_datetime_start)
+			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_date_sens(sens.dephist_device_datetime_start)
 			self.inertial_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start    #Create time array for sens data
 			self.M, self.A, self.P = sens['M'][:].data, sens['A'][:].data, sens['P'][:].data
 		elif data['A'] is not None and data['M'] is not None and data['time'] is not None :
