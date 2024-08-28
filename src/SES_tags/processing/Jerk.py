@@ -24,13 +24,13 @@ class Jerk(Wrapper):
 	lr_blanking : float
 		Blanking criterion in seconds for low-resolution jerk data (default is 5 seconds).
 	lr_duration : float, optional
-		Minimum duration of peaks in low-resolution jerk data. Defaults to the inverse of the sampling rate.
+		Minimum duration in seconds of peaks in low-resolution jerk data. Defaults to the inverse of the sampling rate.
 	hr_threshold : float
 		Threshold value for detecting peaks in high-resolution jerk data (default is 400).
 	hr_blanking : float
 		Blanking criterion in seconds for high-resolution jerk data (default is 0.25 seconds).
 	hr_duration : float
-		Minimum duration of peaks in high-resolution jerk data (default is 0.02 seconds).
+		Minimum duration in seconds of peaks in high-resolution jerk data (default is 0.02 seconds).
 	samplerate : float
 		Sampling rate of the jerk data.
 	jerk : np.ndarray
@@ -78,6 +78,30 @@ class Jerk(Wrapper):
 			  data = {'time': None, 'jerk' : None, 'P' : None}
 			  ) :
 		
+		"""
+		Initialize the Jerk class with deployment ID, data path, and sensor data.
+		
+		This constructor loads the jerk, pressure, accelerometer, and magnetometer data 
+		from the specified NetCDF file or from a provided dictionary.
+		
+		Parameters
+		----------
+		depid : str
+			Deployment ID for the sensor data.
+		path : str
+			Path to the directory containing the data files.
+		sens_path : str
+			Path to the sensor data NetCDF file.
+		data : dict, optional
+			Preloaded data with keys 'time', 'jerk', and 'P'. Default is {'time': None, 'jerk': None, 'P': None}.
+		
+		Notes
+		-----
+		The data dictionary is used if sens_path is not provided. The 'time', 'jerk', and 'P' keys should 
+		correspond to arrays containing the respective data. If sens_path is provided, data is loaded directly 
+		from the NetCDF file located at that path.
+		"""
+		
 		super().__init__(
 			depid,
 			path
@@ -111,7 +135,23 @@ class Jerk(Wrapper):
 		if not self.lr_duration :
 			self.lr_duration = 1 / self.samplerate
 
+
 	def __call__(self, overwrite = False, resolution = 'high') :
+		
+		"""
+		Process and store jerk peaks in reference dataset.
+		
+		This method identifies and stores jerk peaks either using low or high resolution data.
+		It can optionally overwrite existing jerk data in the NetCDF dataset.
+		
+		Parameters
+		----------
+		overwrite : bool, optional
+			If True, overwrites any existing 'jerk' variable in the NetCDF dataset. Default is False.
+		resolution : str, optional
+			Specifies the resolution of peaks to process. Can be 'high' or 'low'. Default is 'high'.
+		"""
+		
 		self.low_resolution_peaks()
 		
 		if resolution == 'high' :
@@ -147,7 +187,25 @@ class Jerk(Wrapper):
 			jerk.duration_units = 's'
 			jerk[:] = jerks
 		
+
 	def high_resolution_peaks(self, raw_path) :
+		"""
+		Verify low-resolution jerk detections using high-resolution data.
+		
+		This method reads high-resolution data from the raw sensor files (swv), aligns them with the
+		corresponding low-resolution peaks, and detects peaks at a higher sampling rate. The detected
+		peaks are stored in the `hr_peaks` attribute.
+		
+		Parameters
+		----------
+		raw_path : str
+			Path to the directory containing the raw sensor data files (swv).
+		
+		Notes
+		-----
+		This method assumes that raw data files are available and that the timestamps are correctly 
+		aligned with the low-resolution data. Detected peaks are validated against the high-resolution data.
+		"""
 		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
 		xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
 		xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))]
@@ -178,7 +236,17 @@ class Jerk(Wrapper):
 				hr_peaks['timestamp'].append(self.lr_peaks['timestamp'][i])
 		self.hr_peaks = {key: np.array(value) for key, value in hr_peaks.items()}
 
+
 	def low_resolution_peaks(self) :
+		"""
+		Detect peaks using low-resolution jerk data.
+		
+		This method processes the jerk data at a low sampling rate to identify peaks that exceed the 
+		specified threshold and respect the blanking and duration conditions.
+		The detected peaks, along with their properties (start time, end time, max time, etc.), are stored in the `lr_peaks` attribute.
+		
+		"""
+		
 		cc, cend, peak_time, peak_max, minlen = self.get_peaks(self.jerk, self.samplerate, self.lr_blanking, self.lr_threshold, self.lr_duration)
 		self.lr_peaks = {}
 		self.lr_peaks['start_time'] = cc / self.samplerate  #in seconds
@@ -195,20 +263,42 @@ class Jerk(Wrapper):
 	@staticmethod
 	def get_peaks(jerk, samplerate, blanking, threshold, duration):
 		"""
-		Determine the start sample of peaks that are above the threshold.
-
-		Parameters :
+		Identify peaks in the jerk signal that exceed a specified threshold.
+		
+		This static method detects the start, end, and maximum of peaks in the jerk signal that
+		are above the provided threshold and shorter than provided duration.
+		It also applies a blanking criterion to prevent multiple detections of the same peak.
+		
+		Parameters
 		----------
-		jerk : numpy array
-			Input signal of jerk data 1D.
+		jerk : np.ndarray
+			1D array of jerk data.
 		samplerate : float
-			Sampling frequency of jerk signal.
+			Sampling frequency of the jerk signal in Hz.
+		blanking : float
+			Blanking criterion in seconds. Peaks closer together than this value will be merged.
 		threshold : float
-			Threshold value to detect peaks.
-		blanking : int or float
-			Blanking criterion in seconds. 
-		duration : int or float, optional
-			Minimum duration of the peak in seconds. Default value is None.
+			Threshold value above which a peak is considered valid.
+		duration : float, optional
+			Minimum duration of a peak in seconds. Peaks shorter than this value will be ignored. Default is None.
+		
+		Returns
+		-------
+		cc : np.ndarray
+			Array of start indices of detected peaks.
+		cend : np.ndarray
+			Array of end indices of detected peaks.
+		peak_time : np.ndarray
+			Array of times (since device started logging) at which the peak maximum occurs in seconds.
+		peak_max : np.ndarray
+			Array of maximum values of the detected peaks.
+		minlen : float
+			Minimum length of the detected peaks in seconds.
+		
+		Notes
+		-----
+		The method converts the blanking and duration values from seconds to samples using the 
+		provided sampling rate. It also merges peaks that are within the blanking distance.
 		"""
 		
 		#Go from seconds to number of bins
@@ -263,6 +353,29 @@ class Jerk(Wrapper):
 	# Function taken from animaltags Python package
 	@staticmethod
 	def norm_jerk(A, sampling_rate):
+		"""
+		Compute the norm of the jerk signal from accelerometer data.
+		This static method calculates the norm of the jerk signal, which is the magnitude of 
+		the derivative of the acceleration. The norm is computed for each time step in the accelerometer data.
+		
+		Parameters
+		----------
+		A : np.ndarray or dict
+			Array of accelerometer data (Nx3 for N samples in 3 axes) or a dictionary containing the data.
+		sampling_rate : float
+			Sampling frequency of the accelerometer signal in Hz.
+		
+		Returns
+		-------
+		jerk : np.ndarray
+			Array of jerk values, with the same length as the input data.
+		
+		Notes
+		-----
+		If `A` is a dictionary, it should contain the accelerometer data under the key 'data' 
+		and the sampling rate under 'sampling_rate'. The method returns the norm of the jerk signal.
+		"""
+
 		if isinstance(A, dict):
 			sampling_rate = A["sampling_rate"]
 			a = A["data"]
