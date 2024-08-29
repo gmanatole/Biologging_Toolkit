@@ -49,3 +49,20 @@ def get_start_date_xml(path) :
 					line = f.readline().strip()
 			xml_dates.append(get_xml_date(line))
 		return np.array(xml_dates)
+
+def get_xml_columns(path) :
+	pass
+
+import os
+
+# Get the directory of the current file
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Traverse up to the root directory
+package_root = os.path.dirname(os.path.abspath(__file__))
+
+# Loop upwards until you reach the directory containing __init__.py
+while not os.path.exists(os.path.join(package_root, '__init__.py')):
+    package_root = os.path.dirname(package_root)
+
+print(package_root)
