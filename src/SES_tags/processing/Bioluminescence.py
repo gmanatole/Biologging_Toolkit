@@ -4,6 +4,9 @@ import netCDF4 as nc
 from scipy.signal import medfilt
 import matplotlib.pyplot as plt
 from SES_tags.wrapper import Wrapper
+from SES_tags.utils.format_utils import *
+from glob import glob
+import os
 
 class Bioluminescence(Wrapper):
 
@@ -12,36 +15,28 @@ class Bioluminescence(Wrapper):
 		pass
 
 	def forward(self) :
-		# Define constants
-		LEN = 3600  # analysis block length in seconds
-		fsin = 200
+
+		fsin = 50   #Origin sampling rate
 		
 		if fsin % self.samplerate != 0:
 			print(f"Output fs must be an integer divisor of raw sampling rate ({fsin} Hz)")
 			return []
 		
-		bl = round(fsin / self.samplerate)  # Calculate block size
-		nsamps = bl * round(LEN * fsin / bl)
-		len_ = nsamps / fsin  # Ensure len is a multiple of bl
+		bl = round(fsin / self.samplerate)  # Calculate sampling rate ratio
+		nsamps = bl * round(LEN * fsin / bl)  # Calculate number of samples in a block
+		len_ = nsamps / fsin  # Length of block in seconds
 		lenreq = len_ + bl / fsin
 		cue = 0
 		
 		L = []
 		
-		while True:
-			X = d3getswv([cue, cue + lenreq], recdir, prefix)
-			if 'x' not in X or len(X['x']) == 0:
-				break
-		
-			# Extract the required channel (assuming it's always the first channel)
-			ll = np.array(X['x'][0])
+		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
+		for fn in swv_fns :
+			sig, fs = sf.read(fn)
+			ll = sig[:, get_xml_columns(fn[:-3] + 'xml')]
 		
 			# Clean the data
-			ll = fix_light_sens(ll)
-		
-			# Truncate or pad the data to nsamps
-			if len(ll) > nsamps:
-				ll = ll[:nsamps]
+			ll = self.fix_light_data(ll)
 		
 			# Buffer the data into blocks
 			n_blocks = len(ll) // bl
@@ -50,22 +45,14 @@ class Bioluminescence(Wrapper):
 			# Calculate the max of each block and append to L
 			L.extend(np.max(Y, axis=1))
 		
-			# Update cue
-			cue += len_
-		
 			# Ensure L is a column vector
 			L = np.array(L)
-		
+
 			if len(L) > 0:
 				L = np.append(L, L[-1])  # Add one measurement to equalize length of other sensors
 		
-		return {
-		'data': L,
-		'sampling_rate': self.samplerate,
-		'input_sampling_rate': fsin,
-		'max_block_time': bl / fsin,
-		'history': 'd3maxlight'
-		}
+		return L
+	
 	
 	def clean_data(self, ll):
 		L = 0
