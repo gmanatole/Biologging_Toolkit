@@ -1,21 +1,118 @@
 import numpy as np
 import scipy.io
 import netCDF4 as nc
-from scipy.signal import firwin, lfilter
+from scipy.signal import medfilt
 import matplotlib.pyplot as plt
+from SES_tags.wrapper import Wrapper
 
-class Bioluminescence:
+class Bioluminescence(Wrapper):
 
-    def __init__(self, recdir, depid, drive):
-        self.recdir = recdir
-        self.depid = depid
-        self.drive = drive
-        self.T = None
-        self.G = None
-        self.LL = None
-        self.P = None
+	def __init__(self):
+		self.samplerate = 5
+		pass
 
-    def get_gain_times(self):
+	def forward(self) :
+		# Define constants
+		LEN = 3600  # analysis block length in seconds
+		fsin = 200
+		
+		if fsin % self.samplerate != 0:
+			print(f"Output fs must be an integer divisor of raw sampling rate ({fsin} Hz)")
+			return []
+		
+		bl = round(fsin / self.samplerate)  # Calculate block size
+		nsamps = bl * round(LEN * fsin / bl)
+		len_ = nsamps / fsin  # Ensure len is a multiple of bl
+		lenreq = len_ + bl / fsin
+		cue = 0
+		
+		L = []
+		
+		while True:
+			X = d3getswv([cue, cue + lenreq], recdir, prefix)
+			if 'x' not in X or len(X['x']) == 0:
+				break
+		
+			# Extract the required channel (assuming it's always the first channel)
+			ll = np.array(X['x'][0])
+		
+			# Clean the data
+			ll = fix_light_sens(ll)
+		
+			# Truncate or pad the data to nsamps
+			if len(ll) > nsamps:
+				ll = ll[:nsamps]
+		
+			# Buffer the data into blocks
+			n_blocks = len(ll) // bl
+			Y = np.array([ll[i:i+bl] for i in range(0, n_blocks * bl, bl)])
+		
+			# Calculate the max of each block and append to L
+			L.extend(np.max(Y, axis=1))
+		
+			# Update cue
+			cue += len_
+		
+			# Ensure L is a column vector
+			L = np.array(L)
+		
+			if len(L) > 0:
+				L = np.append(L, L[-1])  # Add one measurement to equalize length of other sensors
+		
+		return {
+		'data': L,
+		'sampling_rate': self.samplerate,
+		'input_sampling_rate': fsin,
+		'max_block_time': bl / fsin,
+		'history': 'd3maxlight'
+		}
+	
+	def clean_data(self, ll):
+		L = 0
+		ll = self.fix_light_sens(ll)
+		nbl = int(np.ceil(n / INTVL))
+
+		# Ensure ll is not longer than nsamps
+		if len(ll) > nbl:
+			ll = ll[:nbl]
+		        
+		# Buffer the data (equivalent of MATLAB's buffer function)
+		Y = np.array([ll[i:i + bl] for i in range(0, len(ll) - bl + 1, bl)]).T
+		        
+		 # Calculate the max of each column and append to L
+		L.extend(np.max(Y, axis=0))
+		        
+
+    
+	def fix_light_data(self, L) :
+		
+		INTVL = 101  # light interference cycle length in samples at 50 Hz
+		
+		# Find indices where L > 0.99
+		kc = np.where(L > 0.99)[0]
+		L[kc] = np.nan
+		
+		# Buffer the data into columns of length INTVL to compute median
+		n = len(L)
+		nbl = int(np.ceil(n / INTVL))
+		pad_length = (INTVL - (n % INTVL)) % INTVL
+		L_padded = np.pad(L, (0, pad_length), constant_values=np.nan)  #To create 2D matrix of size (-1, INTVL)
+		Lb = L_padded.reshape(-1, INTVL).T
+		Lp = np.nanmedian(Lb, axis=1)
+		
+		# Subtract the interference pattern from the original signal
+		L_corrected = L - np.tile(Lp, nbl)[:n]
+		L_corrected = np.append(L_corrected, Lp[:n - len(L_corrected)])
+		
+		# Apply a median filter with a kernel size of 3
+		L_corrected = medfilt(np.abs(L_corrected), kernel_size=3)
+		
+		# Restore the original high values
+		L_corrected[kc] = 1 - np.nanmedian(Lp)
+
+
+
+'''    def get_gain_times(self):
         """Get gain times and save them."""
         self.T, self.G = self.get_ext_gain(self.recdir, self.depid)
         scipy.io.savemat(f'{self.depid}_gain_times_TG.mat', {'T': self.T, 'G': self.G})
@@ -121,4 +218,4 @@ class Bioluminescence:
     @staticmethod
     def get_info():
         # Retrieve the 'info' data structure as used in the original MATLAB code
-        pass
+        pass'''

@@ -7,7 +7,16 @@ from SES_tags.config.config import *
 import pandas as pd
 
 def get_start_time_sens(x) :
+	"""
+	Turn string UTC datetime (from sens5 structure) into a POSIX timestamp (UTC)
+	"""
 	return datetime.strptime(x, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
+
+def get_ext_time_xml(x) :
+	"""
+	Turn string UTC datetime (from xml structure) into a POSIX timestamp (UTC)
+	"""	
+	return datetime.strptime(x, '%Y,%m,%d,%H,%M,%S').replace(tzinfo=timezone.utc).timestamp()
 
 def get_start_time_xml(path) :
 	"""
@@ -56,6 +65,26 @@ def get_start_date_xml(path) :
 			xml_dates.append(get_xml_date(line))
 		return np.array(xml_dates)
 
+def get_ext_gain(path):
+	"""
+	Get UTC POSIX timestamps and associated gain from xml file
+	"""
+	tree = ET.parse('/run/media/grosmaan/LaCie/individus_brut/individus/ml17_280a/raw/ml17_280a008.xml')
+	root = tree.getroot()
+	times = []
+	gainnums = []
+	
+	# Iterate over all EVENT elements in the XML
+	for event in root.findall('EVENT'):
+		ext = event.find('EXT')
+		if ext is not None:
+			gainnum = ext.get('GAINNUM')
+			if gainnum is not None:
+				gainnums.append(int(gainnum))
+				_time = get_ext_time_xml(event.get('TIME'))
+				times.append(_time)
+	return np.array(gainnums), np.array(times)
+		
 
 def get_xml_columns(path, **kwargs) :
 	"""
@@ -73,8 +102,7 @@ def get_xml_columns(path, **kwargs) :
 		chans_array = np.array(chans_numbers)
 	else :
 		return 'Column number names were not found'
-	first_occurrences = [np.where(chans_array == num)[0][0] for num in num_name]
-	return first_occurrences
+	return [np.where(chans_array == num)[0] for num in num_name]
 	
 	
 	
