@@ -350,6 +350,7 @@ class Jerk(Wrapper):
 		
 		return cc, cend, peak_time, peak_max, minlen
 
+
 	# Function taken from animaltags Python package
 	@staticmethod
 	def norm_jerk(A, sampling_rate):
@@ -394,9 +395,6 @@ class Jerk(Wrapper):
 			jerk = sampling_rate * np.concatenate((np.sqrt(np.sum(np.diff(a, axis=0)**2, axis=1)), [0]))
 		
 		return jerk
-	
-	
-	
 
 
 '''class Jerk:
