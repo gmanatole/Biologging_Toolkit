@@ -52,6 +52,25 @@ class Bioluminescence(Wrapper):
 		
 		return L
 	
+	def get_ext_gain(path):
+		"""
+		Get UTC POSIX timestamps and associated gain from xml file
+		"""
+		tree = ET.parse('/run/media/grosmaan/LaCie/individus_brut/individus/ml17_280a/raw/ml17_280a008.xml')
+		root = tree.getroot()
+		times = []
+		gainnums = []
+		
+		# Iterate over all EVENT elements in the XML
+		for event in root.findall('EVENT'):
+			ext = event.find('EXT')
+			if ext is not None:
+				gainnum = ext.get('GAINNUM')
+				if gainnum is not None:
+					gainnums.append(int(gainnum))
+					_time = get_ext_time_xml(event.get('TIME'))
+					times.append(_time)
+		return np.array(gainnums), np.array(times)
 	
 	def clean_data(self, ll):
 		L = 0
