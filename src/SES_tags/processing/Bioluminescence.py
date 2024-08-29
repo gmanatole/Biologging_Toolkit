@@ -1,12 +1,11 @@
 import numpy as np
-import scipy.io
 import netCDF4 as nc
 from scipy.signal import medfilt
-import matplotlib.pyplot as plt
 from SES_tags.wrapper import Wrapper
 from SES_tags.utils.format_utils import *
 from glob import glob
 import os
+import soundfile as sf
 
 class Bioluminescence(Wrapper):
 
@@ -33,7 +32,7 @@ class Bioluminescence(Wrapper):
 		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
 		for fn in swv_fns :
 			sig, fs = sf.read(fn)
-			ll = sig[:, get_xml_columns(fn[:-3] + 'xml')]
+			ll = sig[:, get_xml_columns(fn[:-3] + 'xml', cal='acc', qualifier2='d4')]
 		
 			# Clean the data
 			ll = self.fix_light_data(ll)
