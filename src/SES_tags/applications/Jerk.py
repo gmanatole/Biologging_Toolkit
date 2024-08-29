@@ -12,6 +12,8 @@ from scipy.interpolate import interp1d
 class Jerk(Wrapper):
 	"""
 	A class to process and analyze jerk data from sensor measurements.
+	Based on Chevallay, 2024, Hunting tactics of southern elephant seals Mirounga leonina and anti-predatory behaviours of their prey.
+	https://doi.org/10.3354/meps14582
 	
 	The `Jerk` class is designed to work with low-resolution (such as 5Hz data from sens file) and high-resolution (such as 50 Hz data from svw file) jerk data.
 	It identifies peaks in the jerk signal that are above a specified threshold.

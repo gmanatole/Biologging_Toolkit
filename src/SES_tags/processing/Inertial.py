@@ -10,6 +10,12 @@ import pdb
 
 
 class Inertial(Wrapper):
+	"""
+	Class that uses preprocessed (downsampled and calibrated) accelerometer and magnetometer data to output animal's posture and heading.
+	Works on any calibrated data.
+	Based on : Benhamou, 2023, Of heading, posture and body rotations derived from data acquired by animal-borne accelerometers, magnetometers and gyrometers, kernel density estimation of the corresponding spherical distributions, and fine-scale movement reconstruction 
+	https://doi.org/10.48550/arXiv.2310.05820
+	"""
 	
 	N = None
 	
@@ -199,8 +205,6 @@ class Inertial(Wrapper):
 		Compute and average various orientation angles (elevation angle, bank angle, azimuth, and vertical azimuth) 
 		over a specified time interval. Additionally, calculates the mean azimuth and rotation of the animal, 
 		adjusting for magnetic declination.
-		Based on : Benhamou, 2023, Of heading, posture and body rotations derived from data acquired by animal-borne accelerometers, magnetometers and gyrometers, kernel density estimation of the corresponding spherical distributions, and fine-scale movement reconstruction 
-		https://doi.org/10.48550/arXiv.2310.05820
 		
 		Parameters
 		----------
