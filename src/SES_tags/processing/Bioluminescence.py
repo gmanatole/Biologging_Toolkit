@@ -11,18 +11,16 @@ class Bioluminescence(Wrapper):
 
 	def __init__(self):
 		self.samplerate = 5
-		pass
 
-	def forward(self) :
 
-		fsin = 50   #Origin sampling rate
+	def forward(self, fsin = 50, length = 3600) :
 		
 		if fsin % self.samplerate != 0:
 			print(f"Output fs must be an integer divisor of raw sampling rate ({fsin} Hz)")
 			return []
 		
 		bl = round(fsin / self.samplerate)  # Calculate sampling rate ratio
-		nsamps = bl * round(LEN * fsin / bl)  # Calculate number of samples in a block
+		nsamps = bl * round(length * fsin / bl)  # Calculate number of samples in a block
 		len_ = nsamps / fsin  # Length of block in seconds
 		lenreq = len_ + bl / fsin
 		cue = 0
@@ -32,24 +30,26 @@ class Bioluminescence(Wrapper):
 		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
 		for fn in swv_fns :
 			sig, fs = sf.read(fn)
-			ll = sig[:, get_xml_columns(fn[:-3] + 'xml', cal='ext', qualifier2='d4')]
-		
-			# Clean the data
-			ll = self.fix_light_data(ll)
-		
-			# Buffer the data into blocks
-			n_blocks = len(ll) // bl
-			Y = np.array([ll[i:i+bl] for i in range(0, n_blocks * bl, bl)])
-		
-			# Calculate the max of each block and append to L
-			L.extend(np.max(Y, axis=1))
-		
-			# Ensure L is a column vector
-			L = np.array(L)
+			
+			for idx in range(0, len(sig), nsamps):
+				ll = sig[idx:idx+nsamps, get_xml_columns(fn[:-3] + 'xml', cal='ext', qualifier2='d4')]
+			
+				# Clean the data
+				ll = self.fix_light_data(ll)
+			
+				# Buffer the data into blocks
+				n_blocks = len(ll) // bl
+				Y = np.array([ll[i:i+bl] for i in range(0, n_blocks * bl, bl)])
+			
+				# Calculate the max of each block and append to L
+				L.extend(np.nanmax(Y, axis=1))
+			
+		# Ensure L is a column vector
+		L = np.array(L)
 
-			if len(L) > 0:
-				L = np.append(L, L[-1])  # Add one measurement to equalize length of other sensors
-	
+		if len(L) > 0:
+			L = np.append(L, L[-1])  # Add one measurement to equalize length of other sensors
+
 		return L
 	
 	def get_ext_gain(path):
@@ -81,7 +81,6 @@ class Bioluminescence(Wrapper):
 		if len(ll) > nbl:
 			ll = ll[:nbl]
 		        
-		# Buffer the data (equivalent of MATLAB's buffer function)
 		Y = np.array([ll[i:i + bl] for i in range(0, len(ll) - bl + 1, bl)]).T
 		        
 		 # Calculate the max of each column and append to L
@@ -95,7 +94,6 @@ class Bioluminescence(Wrapper):
 		self.LL['data'] = np.abs(self.fir_nodelay(self.LL['data'], self.LL['sampling_rate'], cutoff, 'high'))
 
 	@staticmethod
-
 	def fir_nodelay(x, n, fp, qual='Hamming'):
 		"""
 		Delay-free filtering using a linear-phase FIR filter followed by delay correction.
@@ -137,7 +135,7 @@ class Bioluminescence(Wrapper):
 		
 		# Remove padding and correct the delay
 		y = y[n+noffs-1:y.shape[0]-n+noffs-1, :]
-		
+
 		return y, h
 	    
 	def fix_light_data(self, L) :
@@ -164,7 +162,7 @@ class Bioluminescence(Wrapper):
 		L_corrected = medfilt(np.abs(L_corrected), kernel_size=3)
 		
 		# Restore the original high values
-		L_corrected[kc] = 1 - np.nanmedian(Lp)
+		L_corrected[kc] = 1 - np.median(Lp)
 
 
 
