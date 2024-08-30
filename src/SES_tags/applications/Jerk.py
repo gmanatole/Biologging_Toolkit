@@ -239,7 +239,8 @@ class Jerk(Wrapper):
 				hr_peaks['timestamp'].append(self.lr_peaks['timestamp'][i])
 		self.hr_peaks = {key: np.array(value) for key, value in hr_peaks.items()}
 
-
+	## RENAME PROCESS RAW ???
+	## DON'T FORGET TO DO IT FOR 200 HZ
 	def low_resolution_peaks(self) :
 		"""
 		Detect peaks using low-resolution jerk data.

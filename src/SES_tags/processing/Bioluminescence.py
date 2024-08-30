@@ -9,12 +9,29 @@ import soundfile as sf
 
 class Bioluminescence(Wrapper):
 
-	def __init__(self):
-		self.samplerate = 5
-
-
-	def forward(self, fsin = 50, length = 3600) :
+	INTVL = 101  # light interference cycle length in samples at 50 Hz
+	
+	def __init__(self,
+			  depid,
+			  *,
+			  path,
+			  raw_path,
+			  samplerate = None
+			  ):
 		
+				
+
+		super().__init__(
+			depid,
+			path
+        )
+		
+		self.samplerate = self.dt if not samplerate else samplerate 
+		
+
+	def process_raw(self, fsin = 50, length = 3600) :
+		
+		#ADD ARGUMENT GAIN FLAG TO ONLY DO IT ON GAIN 3 OR ON ALL THE GAIN
 		if fsin % self.samplerate != 0:
 			print(f"Output fs must be an integer divisor of raw sampling rate ({fsin} Hz)")
 			return []
@@ -52,11 +69,12 @@ class Bioluminescence(Wrapper):
 
 		return L
 	
-	def get_ext_gain(path):
+	
+	def get_ext_gain(self, path):
 		"""
 		Get UTC POSIX timestamps and associated gain from xml file
 		"""
-		tree = ET.parse('/run/media/grosmaan/LaCie/individus_brut/individus/ml17_280a/raw/ml17_280a008.xml')
+		tree = ET.parse(path)
 		root = tree.getroot()
 		times = []
 		gainnums = []
@@ -70,21 +88,8 @@ class Bioluminescence(Wrapper):
 					gainnums.append(int(gainnum))
 					_time = get_ext_time_xml(event.get('TIME'))
 					times.append(_time)
-		return np.array(gainnums), np.array(times)
-	
-	def clean_data(self, ll):
-		L = 0
-		ll = self.fix_light_sens(ll)
-		nbl = int(np.ceil(n / INTVL))
-
-		# Ensure ll is not longer than nsamps
-		if len(ll) > nbl:
-			ll = ll[:nbl]
-		        
-		Y = np.array([ll[i:i + bl] for i in range(0, len(ll) - bl + 1, bl)]).T
-		        
-		 # Calculate the max of each column and append to L
-		L.extend(np.max(Y, axis=0))
+		self.gain =  np.array(gainnums)
+		self.gain_time = np.array(times)
 		        
 		
 	def high_pass_filter_light_data(self):
@@ -92,6 +97,7 @@ class Bioluminescence(Wrapper):
 		cutoff = 0.2 / (self.LL['sampling_rate'] / 2)
 		self.LL['data_no_filter'] = self.LL['data']
 		self.LL['data'] = np.abs(self.fir_nodelay(self.LL['data'], self.LL['sampling_rate'], cutoff, 'high'))
+
 
 	@staticmethod
 	def fir_nodelay(x, n, fp, qual='Hamming'):
@@ -138,9 +144,8 @@ class Bioluminescence(Wrapper):
 
 		return y, h
 	    
+	
 	def fix_light_data(self, L) :
-		
-		INTVL = 101  # light interference cycle length in samples at 50 Hz
 		
 		# Find indices where L > 0.99
 		kc = np.where(L > 0.99)[0]
@@ -166,7 +171,22 @@ class Bioluminescence(Wrapper):
 
 
 
-'''    def get_gain_times(self):
+'''    
+	def clean_data(self, ll):
+		L = 0
+		ll = self.fix_light_sens(ll)
+		nbl = int(np.ceil(n / INTVL))
+
+		# Ensure ll is not longer than nsamps
+		if len(ll) > nbl:
+			ll = ll[:nbl]
+		        
+		Y = np.array([ll[i:i + bl] for i in range(0, len(ll) - bl + 1, bl)]).T
+		        
+		 # Calculate the max of each column and append to L
+		L.extend(np.max(Y, axis=0))
+
+def get_gain_times(self):
         """Get gain times and save them."""
         self.T, self.G = self.get_ext_gain(self.recdir, self.depid)
         scipy.io.savemat(f'{self.depid}_gain_times_TG.mat', {'T': self.T, 'G': self.G})
