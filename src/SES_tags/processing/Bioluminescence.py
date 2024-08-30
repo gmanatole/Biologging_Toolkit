@@ -32,7 +32,7 @@ class Bioluminescence(Wrapper):
 		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
 		for fn in swv_fns :
 			sig, fs = sf.read(fn)
-			ll = sig[:, get_xml_columns(fn[:-3] + 'xml', cal='acc', qualifier2='d4')]
+			ll = sig[:, get_xml_columns(fn[:-3] + 'xml', cal='ext', qualifier2='d4')]
 		
 			# Clean the data
 			ll = self.fix_light_data(ll)
@@ -49,7 +49,7 @@ class Bioluminescence(Wrapper):
 
 			if len(L) > 0:
 				L = np.append(L, L[-1])  # Add one measurement to equalize length of other sensors
-		
+	
 		return L
 	
 	def get_ext_gain(path):
@@ -87,8 +87,59 @@ class Bioluminescence(Wrapper):
 		 # Calculate the max of each column and append to L
 		L.extend(np.max(Y, axis=0))
 		        
+		
+	def high_pass_filter_light_data(self):
+		"""High pass filter the light data to remove low-frequency noise."""
+		cutoff = 0.2 / (self.LL['sampling_rate'] / 2)
+		self.LL['data_no_filter'] = self.LL['data']
+		self.LL['data'] = np.abs(self.fir_nodelay(self.LL['data'], self.LL['sampling_rate'], cutoff, 'high'))
 
-    
+	@staticmethod
+
+	def fir_nodelay(x, n, fp, qual='Hamming'):
+		"""
+		Delay-free filtering using a linear-phase FIR filter followed by delay correction.
+		
+		Parameters:
+		x    : np.ndarray
+		   The signal to be filtered. It can be multi-channel and 
+		   should have a column for each channel.
+		n    : int
+		   The length of the symmetric FIR filter to use. Must be even.
+		fp   : float
+		   The filter cut-off frequency relative to the Nyquist frequency (fs/2 = 1).
+		qual : str, optional
+		   Qualifier to pass to firwin (e.g., window type).
+		
+		Returns:
+		y    : np.ndarray
+		   The filtered signal with delay correction.
+		h    : np.ndarray
+		   The FIR filter used.
+		"""
+		
+		n = int(np.floor(n / 2) * 2)  # n must be even for an integer group delay
+		noffs = n // 2  # Filter delay
+		
+		if qual is not None:
+			h = firwin(n+1, fp, pass_zero=qual)
+		else:
+			h = firwin(n+1, fp)
+		
+		if x.ndim == 1:
+			x = x[:, np.newaxis]
+		
+		# Add padding to the signal
+		x_padded = np.vstack([x[n-1::-1, :], x, x[:-n-1:-1, :]])
+		
+		# Filter the signal
+		y = lfilter(h, 1.0, x_padded, axis=0)
+		
+		# Remove padding and correct the delay
+		y = y[n+noffs-1:y.shape[0]-n+noffs-1, :]
+		
+		return y, h
+	    
 	def fix_light_data(self, L) :
 		
 		INTVL = 101  # light interference cycle length in samples at 50 Hz
@@ -160,67 +211,5 @@ class Bioluminescence(Wrapper):
 
         self.crop_and_plot([15, 20] * 3600 * 24)
 
-    def high_pass_filter_light_data(self):
-        """High pass filter the light data to remove low-frequency noise."""
-        cutoff = 0.2 / (self.LL['sampling_rate'] / 2)
-        self.LL['data_no_filter'] = self.LL['data']
-        self.LL['data'] = np.abs(self.fir_nodelay(self.LL['data'], self.LL['sampling_rate'], cutoff, 'high'))
 
-        self.crop_and_plot([15, 20] * 3600 * 24)
-
-    def save_light_data(self):
-        """Save the filtered light data to a NetCDF file."""
-        self.add_nc(f'{self.drive}nc_files/{self.depid}sens5.nc', self.LL)
-
-    @staticmethod
-    def get_ext_gain(recdir, depid):
-        # Implement this function based on your MATLAB code
-        pass
-
-    @staticmethod
-    def d3maxlight(recdir, depid, downsample_factor):
-        # Implement this function based on your MATLAB code
-        pass
-
-    @staticmethod
-    def load_nc(filepath, variables):
-        ds = nc.Dataset(filepath)
-        data = {var: ds.variables[var][:] for var in variables}
-        ds.close()
-        return data
-
-    @staticmethod
-    def crop_to(data, time_range):
-        # Implement this function based on your MATLAB code
-        pass
-
-    @staticmethod
-    def plott(P, L):
-        # Implement this function based on your MATLAB code
-        pass
-
-    @staticmethod
-    def gps2tag_time(T, info):
-        # Implement this function based on your MATLAB code
-        pass
-
-    @staticmethod
-    def eventon(events, time_series):
-        # Implement this function based on your MATLAB code
-        pass
-
-    @staticmethod
-    def fir_nodelay(data, sampling_rate, cutoff, filter_type):
-        numtaps = 10 * int(sampling_rate)
-        taps = firwin(numtaps, cutoff, pass_zero=filter_type)
-        return lfilter(taps, 1.0, data)
-
-    @staticmethod
-    def add_nc(filepath, data):
-        # Implement this function to save data to the NetCDF file
-        pass
-
-    @staticmethod
-    def get_info():
-        # Retrieve the 'info' data structure as used in the original MATLAB code
-        pass'''
+'''
