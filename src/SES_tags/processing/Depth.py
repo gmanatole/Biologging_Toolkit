@@ -40,6 +40,7 @@ class Depth(Wrapper):
 			dives.long_name = 'Dive number'
 			dives.threshold = self.threshold
 			dives.threshold_units = 'meters'
+			dives.measure = "Increments dives each time the animal goes below threshold"
 			dives[:] = self.dives
 			
 	def get_depth(self):
