@@ -1,10 +1,6 @@
 import torch
 from torch import nn, tensor, utils, device, cuda, optim, long, save
-from OSmOSE.config_weather import empirical
-from OSmOSE.config import *
-from OSmOSE.Auxiliary import Auxiliary
-from OSmOSE.utils import deep_learning_utils as dl_utils
-from OSmOSE.utils.timestamp_utils import *
+from SES_tags.wrapper import Wrapper
 import numpy as np
 from typing import Union, Tuple, List
 from sklearn.model_selection import StratifiedKFold
@@ -20,7 +16,7 @@ def beaufort(x):
     return next((i for i, limit in enumerate([0.3, 1.6, 3.4, 5.5, 8, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.7]) 
                  if x < limit), 12)
 
-class Weather(Auxiliary):
+class Wind(Wrapper):
 	
 	
 	def __init__(
@@ -190,19 +186,3 @@ class Weather(Auxiliary):
 			estimation = dl_utils.train_rnn(model, train_loader, test_loader, criterion, optimizer, num_epochs = params['epochs'], device = device)		
 			self.df.loc[test_indices, 'lstm_estimation'] = estimation
 
-	def plot_estimation(self):
-
-		fig = go.Figure()
-		fig.add_trace(go.Scatter(x=df['timestamp'], y=self.ground_truth, mode='markers', marker=dict(size=3), name='Ground Truth'))
-		fig.add_trace(go.Scatter(x=df['timestamp'], y=df['estimation'], mode='markers', marker=dict(size=4), name='Estimation'))
-		fig.update_layout(title='Wind Speed and Estimation Over Time', xaxis_title='Timestamp', yaxis_title='Weather estimation', width=800, height=600)
-		fig.show()
-
-	@classmethod
-	def from_joined_dataframe(cls, path, method, ground_truth):
-		instance = cls.__new__(cls)
-		instance.df = check_epoch(pd.read_csv(path))
-		instance.method = method
-		instance.ground_truth = ground_truth
-		instance.popt = {}
-		return instance
