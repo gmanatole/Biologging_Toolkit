@@ -1,11 +1,9 @@
-import pandas as pd
-import seaborn as sns
-from angle_orientation import Orientation
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.ndimage import uniform_filter1d
-from scipy.interpolate import interp1d
+from scipy.optimize import curve_fit, Bounds
 from SES_tags.wrapper import Wrapper
+from sklearn.model_selection import StratifiedKFold
+import pandas as pd
+
 
 class Speed(Wrapper) :
 
@@ -42,4 +40,40 @@ class Speed(Wrapper) :
 		
 
 	def from_acoustic(self, freq = 60):
-		pass
+		
+		freq_idx = np.argmax(self.ds['freq'][:] - freq < 0)
+		noise_level = self.ds['spectrogram'][:, freq_idx]
+		
+		if 'inertial_speed' not in self.dir() :
+			self.from_inertial()
+			
+		def func(x, a, b, c): 
+			return a*x**2+b*x+c
+			
+		depth = [self.threshold,np.inf]  #depth (m) threshold
+		classes = pd.cut(self.inertial_speed, bins=5, labels = [1,2,3,4,5])
+		
+		acoustic_speed = np.full(len(noise_level), np.nan)
+
+		mask = self.ds['elevation_angle'] < 0
+		skf = StratifiedKFold(n_splits=5)
+		neg_params = []
+		for i, (train_index, test_index) in enumerate(skf.split(noise_level[mask], classes[mask])):
+			popt, popv = curve_fit(func, noise_level[mask][train_index], self.inertial_speed[mask][train_index], maxfev = 25000)
+			estimation = func(noise_level[mask][test_index], *popt)
+			neg_params.append(popt)
+		self.neg_params = np.mean(popt, axis = 0)
+		acoustic_speed[mask] = func(noise_level[mask][test_index], *self.neg_params)
+
+				  
+		mask = self.ds['elevation_angle'] >= 0
+		skf = StratifiedKFold(n_splits=5)
+		pos_params = []
+		for i, (train_index, test_index) in enumerate(skf.split(noise_level[mask], classes[mask])):
+			popt, popv = curve_fit(func, noise_level[mask][train_index], self.inertial_speed[mask][train_index], maxfev = 25000)
+			estimation = func(noise_level[mask][test_index], *popt)
+			pos_params.append(popt)
+		self.pos_params = np.mean(popt, axis = 0)
+		acoustic_speed[mask] = func(noise_level[mask][test_index], *self.pos_params)
+
+		self.acoustic_speed = acoustic_speed
