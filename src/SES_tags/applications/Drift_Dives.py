@@ -12,7 +12,7 @@ import netCDF4 as nc
 import time, datetime, calendar
 from SES_tags.wrapper import Wrapper
 
-class Drift_Dive(Wrapper) :
+class DriftDives(Wrapper) :
 
 	def __init__(self) :
 		pass
