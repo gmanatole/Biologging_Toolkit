@@ -57,7 +57,7 @@ class Wrapper():
 		"""
 		self.ds.title = title
 
-	def create_time(self, time_data, overwrite = False):
+	def create_time(self, time_data, overwrite = False, resample = True):
 		"""
 		Create or update the 'time' variable in the dataset.
 		This method creates a new 'time' dimension and variable, or updates an existing one, with the provided time data.
@@ -72,6 +72,9 @@ class Wrapper():
 		if overwrite :
 			if 'time' in self.ds.variables:
 				self.remove_variable('time')
+			
+		if resample :
+			time_data = np.arange(time_data[0], time_data[-1], self.dt)
 
 		if 'time' not in self.ds.variables:
 			time_dim = self.ds.createDimension('time', len(time_data)) # unlimited axis (can be appended to)
@@ -156,7 +159,12 @@ class Wrapper():
 
 		# Create the dimension for time if not already present
 		if 'time' not in self.ds.dimensions:
+			time_data = np.arange(time_data[0], time_data[-1], self.dt)
 			self.ds.createDimension('time', len(time_data))
+
+		#Interpolation to get same timestep as reference dataframe
+		interp = interp1d(time_data, var_data)
+		var_data = interp(self.ds['time'][:].data)
 
 		# Create or update the variable
 		if var_name not in self.ds.variables:

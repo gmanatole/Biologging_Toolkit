@@ -43,7 +43,7 @@ class Speed(Wrapper) :
 	def from_acoustic(self, freq = 60):
 		
 		freq_idx = np.argmin(abs(self.ds['frequency_spectrogram'][:] - freq))
-		noise_level = self.ds['spectrogram'][:, freq_idx]
+		noise_level = self.ds['spectrogram'][:, freq_idx].data
 		
 		if 'inertial_speed' not in dir(self) :
 			self.from_inertial()
@@ -52,9 +52,9 @@ class Speed(Wrapper) :
 			return a*x**2+b*x+c
 			
 		depth = [self.threshold,np.inf]  #depth (m) threshold
-		classes = pd.cut(self.inertial_speed, bins=5, labels = [1,2,3,4,5])
+		classes = pd.cut(self.inertial_speed, bins=5, labels = [1,2,3,4,5]).to_numpy()
 		
-		mask_nan = [(~np.isnan(classes)) & (~np.isnan(noise_level))]
+		mask_nan = (~np.isnan(classes)) & (~np.isnan(noise_level))
 		
 		acoustic_speed = np.full(len(noise_level), np.nan)
 
@@ -66,8 +66,8 @@ class Speed(Wrapper) :
 			popt, popv = curve_fit(func, noise_level[mask][train_index], self.inertial_speed[mask][train_index], maxfev = 25000)
 			estimation = func(noise_level[mask][test_index], *popt)
 			neg_params.append(popt)
-		self.neg_params = np.mean(popt, axis = 0)
-		acoustic_speed[mask] = func(noise_level[mask][test_index], *self.neg_params)
+		self.neg_params = np.mean(neg_params, axis = 0)
+		acoustic_speed[mask] = func(noise_level[mask], *self.neg_params)
 
 				  
 		mask_angle = self.ds['elevation_angle'][:].data >= 0
@@ -78,7 +78,7 @@ class Speed(Wrapper) :
 			popt, popv = curve_fit(func, noise_level[mask][train_index], self.inertial_speed[mask][train_index], maxfev = 25000)
 			estimation = func(noise_level[mask][test_index], *popt)
 			pos_params.append(popt)
-		self.pos_params = np.mean(popt, axis = 0)
-		acoustic_speed[mask] = func(noise_level[mask][test_index], *self.pos_params)
+		self.pos_params = np.mean(pos_params, axis = 0)
+		acoustic_speed[mask] = func(noise_level[mask], *self.pos_params)
 
 		self.acoustic_speed = acoustic_speed
