@@ -7,14 +7,15 @@ import pandas as pd
 
 class Speed(Wrapper) :
 
-	def __init__(self, depid, *, path):
+	def __init__(self, depid, *, path, threshold = 20):
 		
+		self.threshold = threshold
 		super().__init__(
 			depid,
 			path
         )
 
-	def _call__(self, overwrite = False) :
+	def __call__(self, overwrite = False) :
 		self.forward()
 		
 	def forward(self, overwrite = False, acoustic = True):
@@ -29,22 +30,22 @@ class Speed(Wrapper) :
 		Method to compute speed based on vertical speed and elevation angle.
 		Moments where movement is in the horizontal plane are removed.
 		"""
-		angle = abs(self.ds['elevation_angle'].to_numpy())
+		angle = abs(self.ds['elevation_angle'][:].data)
 		angle[angle < 0.35] = np.nan
 
-		dP = abs(self.ds['depth'][:][1:] - self.ds['depth'][:][:-1])
+		dP = abs(self.ds['depth'][:][1:] - self.ds['depth'][:].data[:-1])
 		dP[dP < 0.5] = np.nan
 		
-		speed = dP / np.sin(angle[:-1]) / self.ds.dt
+		speed = dP / np.sin(angle[:-1]) / self.ds.sampling_rate
 		self.inertial_speed = np.append(speed, speed[-1])
 		
 
 	def from_acoustic(self, freq = 60):
 		
-		freq_idx = np.argmax(self.ds['freq'][:] - freq < 0)
+		freq_idx = np.argmin(abs(self.ds['frequency_spectrogram'][:] - freq))
 		noise_level = self.ds['spectrogram'][:, freq_idx]
 		
-		if 'inertial_speed' not in self.dir() :
+		if 'inertial_speed' not in dir(self) :
 			self.from_inertial()
 			
 		def func(x, a, b, c): 
@@ -53,9 +54,12 @@ class Speed(Wrapper) :
 		depth = [self.threshold,np.inf]  #depth (m) threshold
 		classes = pd.cut(self.inertial_speed, bins=5, labels = [1,2,3,4,5])
 		
+		mask_nan = [(~np.isnan(classes)) & (~np.isnan(noise_level))]
+		
 		acoustic_speed = np.full(len(noise_level), np.nan)
 
-		mask = self.ds['elevation_angle'] < 0
+		mask_angle = self.ds['elevation_angle'][:].data < 0
+		mask = mask_angle & mask_nan
 		skf = StratifiedKFold(n_splits=5)
 		neg_params = []
 		for i, (train_index, test_index) in enumerate(skf.split(noise_level[mask], classes[mask])):
@@ -66,7 +70,8 @@ class Speed(Wrapper) :
 		acoustic_speed[mask] = func(noise_level[mask][test_index], *self.neg_params)
 
 				  
-		mask = self.ds['elevation_angle'] >= 0
+		mask_angle = self.ds['elevation_angle'][:].data >= 0
+		mask = mask_angle & mask_nan
 		skf = StratifiedKFold(n_splits=5)
 		pos_params = []
 		for i, (train_index, test_index) in enumerate(skf.split(noise_level[mask], classes[mask])):
