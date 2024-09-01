@@ -4,8 +4,11 @@ import scipy.signal as sg
 import soundfile as sf
 from tqdm import tqdm
 from SES_tags.utils.acoustic_utils import *
+from SES_tags.utils.format_utils import *
 from SES_tags.wrapper import Wrapper
+from glob import glob
 import pdb
+import gc
 
 class Acoustic(Wrapper):
 	"""
@@ -20,7 +23,6 @@ class Acoustic(Wrapper):
 			  depid,
 			  *,
 			  path,
-			  timestamp,
 			  wav_path = None,
 			  data_normalization : str = 'instrument',
 			  spectro_normalization : str = 'density',
@@ -54,16 +56,17 @@ class Acoustic(Wrapper):
 			path
         )
 		
-		self.timestamp = timestamp
-		self.wav_path = wav_path if wav_path else os.getcwd()
-		self.samplerate = sf.info(os.path.join(self.wav_path, self.timestamp.fn.iloc[0])).samplerate
+		self.wav_path = wav_path
+		self.get_timestamps()
+		
+		self.samplerate = sf.info(os.path.join(self.wav_fns[0])).samplerate
 		default = {'window_size' : 1024, 'nfft' : 1024, 'overlap' : 0, 'duration' : 3}
 		self.params = {**default, **kwargs}
 
 		self.data_normalization = data_normalization
 		if self.data_normalization == 'instrument':
 			# Check that 'instrument' exists and is a dictionary
-			assert 'instrument' in self.params, "Please make sure to provide the hydrophone's sensitivity, peak_voltage and gain_dB value in a dictionary named instrument\nElse choose zscore"
+			assert 'instrument' in self.params, "Please make sure to provide the hydrophone's sensitivity, peak_voltage and gain_dB value in a dictionary named instrument.\nElse choose zscore"
 			assert isinstance(self.params['instrument'], dict), "'instrument' is not a dictionary."
 			
 			# Check that required keys exist in the 'instrument' dictionary
@@ -74,8 +77,10 @@ class Acoustic(Wrapper):
 
 		self.spectro_normalization = spectro_normalization
 
+
 	def __call__(self, overwrite = False):
 		return self.forward(overwrite = overwrite)
+
 
 	def forward(self, overwrite = False) :
 		"""
@@ -175,26 +180,31 @@ class Acoustic(Wrapper):
 		
 		
 		# Fetch wav starting times wrt to netCDF structure
-		matches = (self.ds['time'][:].data[:, None] >= self.timestamp.begin.to_numpy()) & (self.ds['time'][:].data[:, None] <= self.timestamp.end.to_numpy())
+		matches = (self.ds['time'][:].data[:, None] >= self.wav_start_time) & (self.ds['time'][:].data[:, None] <= self.wav_end_time)
 		indices = np.where(matches.any(axis=1), matches.argmax(axis=1), -1)
-		time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.timestamp.begin.to_numpy()[indices], np.nan)
+		time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.wav_start_time[indices], np.nan)
 		spectro = np.full([np.size(freqs), len(indices)], np.nan)
 		
-		pbar = tqdm(total = len(self.timestamp), leave = True)
+		pbar = tqdm(total = len(self.wav_start_time), leave = True)
 	
-		for idx, wav_file in enumerate(self.timestamp.fn) :
+		for idx, wav_file in enumerate(self.wav_fns) :
 
 			pbar.update(1)
 			pbar.set_description(f'Computing spectral power for file : {wav_file}')
 			
 			# Fetch data corresponding to one wav file
-			data, _ = sf.read(os.path.join(self.wav_path, wav_file), dtype = 'float32')
-			data = self.normalize(data)
+			'''data, _ = sf.read(os.path.join(wav_file), dtype = 'float32', mmap=True)
+			data = self.normalize(data)'''
 			_time_diffs = time_diffs[indices == idx]
 			
 			# Read signal at correct timestamp
 			for j in range(len(_time_diffs)):
-				sig = data[int(_time_diffs[j] * self.samplerate) : int((_time_diffs[j] + self.params['duration']) * self.samplerate)]
+				sig, _ = sf.read(wav_file,
+					 start = int(_time_diffs[j] * self.samplerate),
+					 stop =  int((_time_diffs[j] + self.params['duration']) * self.samplerate),
+					 dtype = 'float32'
+					 )
+				sig = self.normalize(sig)
 				Sxx = np.zeros([np.size(freqs), Nbwin])
 				#Compute the spectrogram for desired duration and with chosen window parameters
 				for idwin in range(Nbwin):
@@ -209,10 +219,15 @@ class Acoustic(Wrapper):
 							scaling=self.spectro_normalization,
 							)
 					else:
-						x_win = sig[idwin * Noffset : idwin * Noffset + self.params['window_size']] * win
+						x_win = sig[idwin * Noffset : idwin * Noffset + self.params['window_size']]
+						if len(x_win) < self.params['window_size'] :
+							x_win = np.pad(x_win, (0, self.params['window_size']-len(x_win)), 'constant', constant_values=0)
+						x_win = x_win * win
 						Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
 					Sxx[:, idwin] *= scale_psd
 				spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
+				del sig
+				gc.collect()
 			
 			pbar.set_description('Normalizing and saving data')
 			
@@ -230,4 +245,13 @@ class Acoustic(Wrapper):
 
 		return log_spectro, freqs
 		
-		
+	def get_timestamps(self) :
+		self.wav_fns = np.array(glob(os.path.join(self.wav_path, '*wav')))
+		xml_fns = np.array(glob(os.path.join(self.wav_path, '*xml')))
+		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.wav_path, '*dat.xml'))]
+		self.wav_start_time = get_start_date_xml(xml_fns)
+		wav_end_time = []
+		for file in self.wav_fns :
+			wav_end_time.append(sf.info(file).duration)
+		wav_end_time = np.array(wav_end_time) + self.wav_start_time
+		self.wav_end_time = wav_end_time
