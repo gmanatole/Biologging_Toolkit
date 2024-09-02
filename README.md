@@ -29,17 +29,17 @@ Then install the necessary packages or run :
 
 Most code behaves in the same way.
 First, define the following :
-`from SES_tags.process import Acoustic`
+```from SES_tags.process import Acoustic
 
-`depid = 'ml18_185b'  # Enter name of deployement ID (Will be the name of the processed dataset created)`
-`path = '/home/user/data/' #Enter path where dataset should be saved`
-`raw_path = '/home/data/ml18_185b/'  #Enter path where data (raw (svw + xml) or sens5 for example) is saved | raw_path might also be name acoustic_path or inertial_path depending on the data handled`
-`data_normalization = 'instrument'   # How to normalize data. If you don't know the instrument metadata, enter zscore`
-`instrument = {'gain_dB':12, 'sensitivity':175, 'peak_voltage':1}`
-`acoustic = Acoustic(depid, path=path, raw_path = raw_path, instrument = instrument)`
+depid = 'ml18_185b'  # Enter name of deployement ID (Will be the name of the processed dataset created)
+path = '/home/user/data/' #Enter path where dataset should be saved
+raw_path = '/home/data/ml18_185b/'  #Enter path where data (raw (svw + xml) or sens5 for example) is saved | raw_path might also be name acoustic_path or inertial_path depending on the data handled
+data_normalization = 'instrument'   # How to normalize data. If you don't know the instrument metadata, enter zscore
+instrument = {'gain_dB':12, 'sensitivity':175, 'peak_voltage':1}
+acoustic = Acoustic(depid, path=path, raw_path = raw_path, instrument = instrument)
 
-`acoustic.N = 60   # Modify timestep of dataset (in seconds). Defaults to 3.`
-`acoustic()    # Get power spectral densities at desired timestep for all frequencies`
+acoustic.N = 60   # Modify timestep of dataset (in seconds). Defaults to 3.
+acoustic()    # Get power spectral densities at desired timestep for all frequencies
 
 
 
