@@ -39,7 +39,7 @@ instrument = {'gain_dB':12, 'sensitivity':175, 'peak_voltage':1}
 acoustic = Acoustic(depid, path=path, raw_path = raw_path, instrument = instrument)
 
 acoustic.N = 60   # Modify timestep of dataset (in seconds). Defaults to 3.
-acoustic()    # Get power spectral densities at desired timestep for all frequencies
+acoustic()    # Get power spectral densities at desired timestep for all frequencies`
 
 
 
