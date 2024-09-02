@@ -190,7 +190,7 @@ class Jerk(Wrapper):
 			jerk[:] = jerks
 		
 
-	def high_resolution_peaks(self, raw_path) :
+	def high_resolution_peaks(self, raw_path, samplerate = 200) :
 		"""
 		Verify low-resolution jerk detections using high-resolution data.
 		
@@ -212,6 +212,8 @@ class Jerk(Wrapper):
 		xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
 		xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))]
 		xml_start_time = get_start_date_xml(xml_fns)
+		if samplerate == 50 :
+			idx_names = idx_names[:,0]
 		hr_peaks = {'start_time':[],'end_time':[],'max_time':[],'max':[],'duration':[],'depth':[],'datetime':[],'timestamp':[]}	
 		idx_names = get_xml_columns(xml_fns[0], cal='acc', qualifier2='d4') 
 		for i, peak_time in enumerate(self.lr_peaks['timestamp']) :
@@ -220,7 +222,7 @@ class Jerk(Wrapper):
 			sig, fs = sf.read(swv_fns[fn_idx], 
 					 start = int((self.sens_time[0] + self.lr_peaks['start_time'][i] - xml_start_time[fn_idx] - 1)*fs),
 					 stop = int((self.sens_time[0] + self.lr_peaks['end_time'][i] - xml_start_time[fn_idx] + 1)*fs))
-			A_peak = sig[:, idx_names]
+			A_peak = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
 			A_peak = (A_peak * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
 			jerk_peak = self.norm_jerk(A_peak, fs)
 			jerk_validation = self.get_peaks(jerk = jerk_peak,
