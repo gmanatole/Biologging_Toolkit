@@ -18,8 +18,8 @@ The main objective is to provide general codes with associated notebooks so that
 
 Download the package and unzip it or run the following command :
 
-<code> git clone https://github.com/gmanatole/SES_tags.git
+'git clone https://github.com/gmanatole/SES_tags.git'
 
 Then install the necessary packages or run :
 
-<code> pip -r requirements.txt
+'pip -r requirements.txt'
