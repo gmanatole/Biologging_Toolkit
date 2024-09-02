@@ -28,7 +28,8 @@ Then install the necessary packages or run :
 ## How to run the code
 
 Most code behaves in the same way.
-First, define the following :
+
+Here is a simple example of how you can run the Acoustic class :
 ```from SES_tags.process import Acoustic
 
 depid = 'ml18_185b'  # Enter name of deployement ID (Will be the name of the processed dataset created)
