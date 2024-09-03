@@ -84,7 +84,7 @@ class Inertial(Wrapper):
 			self.inertial_time = data['time']
 			self.samplerate = self.inertial_time[1]-self.inertial_time[0]
 
-		self._declination = declination   #Fetch declination data in existing dataframe
+		self.declination = declination   #Fetch declination data in existing dataframe
 		self.flip = flip #Correct axis orientation to fit with NED system used by equations in rest of code
 		self.ponderation = ponderation    #Ponderation method for heading reconstruction (speed also possible, any other str will lead to no ponderation)
 
@@ -94,7 +94,7 @@ class Inertial(Wrapper):
 		Get or set the magnetic declination data for the dataset.
 		If the `_declination` attribute is a string, this property behaves as follows:
 
-		- If `_declination` is `'compute'`:
+		- If `_declination` is `'download'`:
 			- Computes the magnetic declination based on the dataset's latitude, longitude, and time data.
 			- The computation samples the data at twelve-hour intervals and saved to a CSV file named `'declination.csv'`.
 			- `_declination` attribute is updated to point to this file.
@@ -103,7 +103,7 @@ class Inertial(Wrapper):
 			- Loads the declination data from the CSV file.
 			- Returns an interpolating function that estimates the declination for any given time in the dataset.
 
-		- If `_declination` is neither `'compute'` nor a valid filename:
+		- If `_declination` is neither `'download'` nor a valid filename:
 			- Defaults to no declination correction.
 			- Returns an interpolating function that provides zero correction for all times.
 
@@ -118,7 +118,8 @@ class Inertial(Wrapper):
 				dec_lon = self.ds['lon'][:].data[:: int(24*3600/self.dt/2)]
 				dec_data = [get_declination(lat, lon, time) for lat, lon, time in zip(dec_lat, dec_lon, dec_time)]
 				pd.DataFrame({'time': dec_time, 'declination': dec_data}).to_csv('declination.csv')
-				self.declination = 'declination.csv'
+				self._declination = 'declination.csv'
+				return interp1d(dec_time, dec_data, bounds_error=False, fill_value=None)
 			else:
 				# Case where _declination is any other string pointing to a csv file
 				dec_data = pd.read_csv(self._declination)
@@ -135,7 +136,7 @@ class Inertial(Wrapper):
 
 		Parameters:
 		----------
-		value (str): Can be a string indicating the mode of operation ('compute') or a filename
+		value (str): Can be a string indicating the mode of operation ('download') or a filename
 			     pointing to a CSV file containing precomputed declination data.
 		"""
 		self._declination = value

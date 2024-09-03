@@ -10,7 +10,7 @@ from sklearn.manifold import TSNE
 import scipy
 import netCDF4 as nc
 import time, datetime, calendar
-from SES_tags.wrapper import Wrapper
+from Biologging_Toolkit.wrapper import Wrapper
 
 class DriftDives(Wrapper) :
 

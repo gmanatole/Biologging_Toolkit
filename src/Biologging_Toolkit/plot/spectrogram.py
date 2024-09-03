@@ -11,7 +11,7 @@ from Biologging_Toolkit.utils.inertial_utils import *
 from Biologging_Toolkit.utils.format_utils import *
 
 def get_timestamp(raw_path) :
-	swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
+	swv_fns = np.array(glob(os.path.join(raw_path, '*wav')))
 	xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
 	xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))].flatten()
 	xml_start_time = get_start_date_xml(xml_fns)
@@ -50,18 +50,15 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path) :
 	# Initialize the Dash app
 	app = Dash(__name__)
 
+	options = list(inst.ds.variables.keys())[1:]
+
 	app.layout = html.Div([
 	    dcc.Graph(id='spectrogram-plot'),
 	    html.Div([
 		dcc.Checklist(
 		    id='trace-checklist',
-		    options=[
-			{'label': 'Elevation Angle', 'value': 'elevation_angle'},
-			{'label': 'Bank Angle', 'value': 'bank_angle'},
-			{'label': 'Azimuth', 'value': 'azimuth'},
-			{'label': 'PCA', 'value': 'jerk'},
-		    ],
-		    value=['elevation_angle']
+		    options=[{'label':opt, 'value':opt} for opt in options],
+		    value=[options[0]]
 		)
 	    ])
 	])
@@ -153,4 +150,4 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path) :
 	    
 		return fig
 
-	app.run_server(debug=False, port = 8051)
+	app.run_server(debug=False, port = np.random.randint(2000, 65000))
