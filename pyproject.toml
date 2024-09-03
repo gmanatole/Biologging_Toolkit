@@ -1,5 +1,5 @@
 [project]
-name = "SES_tags"
+name = "Biologging_Toolkit"
 version = "0.0.1"
 authors = [
   { name="Anatole GROS-MARTIAL", email="grosmartial.anatole@gmail.com" },
@@ -14,7 +14,7 @@ classifiers = [
 ]
 
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
