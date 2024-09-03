@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from scipy.interpolate import interp1d
-from SES_tags.utils.inertial_utils import *
-from SES_tags.utils.format_utils import *
-from SES_tags.wrapper import Wrapper
+from Biologging_Toolkit.utils.inertial_utils import *
+from Biologging_Toolkit.utils.format_utils import *
+from Biologging_Toolkit.wrapper import Wrapper
 import pdb
 
 

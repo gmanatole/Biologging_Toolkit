@@ -3,9 +3,9 @@ import os
 import scipy.signal as sg
 import soundfile as sf
 from tqdm import tqdm
-from SES_tags.utils.acoustic_utils import *
-from SES_tags.utils.format_utils import *
-from SES_tags.wrapper import Wrapper
+from Biologging_Toolkit.utils.acoustic_utils import *
+from Biologging_Toolkit.utils.format_utils import *
+from Biologging_Toolkit.wrapper import Wrapper
 from glob import glob
 import pdb
 import gc

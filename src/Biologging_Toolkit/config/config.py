@@ -3,7 +3,7 @@ from collections import namedtuple
 import importlib.util
 import os
 
-package_name = 'SES_tags'
+package_name = 'Biologging_Toolkit'
 spec = importlib.util.find_spec(package_name)
 package_root = os.path.dirname(spec.origin)
 

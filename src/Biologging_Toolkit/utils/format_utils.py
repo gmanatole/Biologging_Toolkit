@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import numpy as np
 import calendar
 import time
-from SES_tags.config.config import *
+from Biologging_Toolkit.config.config import *
 import pandas as pd
 
 def get_start_time_sens(x) :

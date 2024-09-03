@@ -1,8 +1,8 @@
 import numpy as np
 import netCDF4 as nc
 from scipy.signal import medfilt
-from SES_tags.wrapper import Wrapper
-from SES_tags.utils.format_utils import *
+from Biologging_Toolkit.wrapper import Wrapper
+from Biologging_Toolkit.utils.format_utils import *
 from glob import glob
 import os
 import soundfile as sf

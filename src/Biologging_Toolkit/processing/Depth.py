@@ -1,5 +1,5 @@
 import numpy as np
-from SES_tags.wrapper import Wrapper
+from Biologging_Toolkit.wrapper import Wrapper
 from scipy.signal import find_peaks
 
 class Depth(Wrapper): 

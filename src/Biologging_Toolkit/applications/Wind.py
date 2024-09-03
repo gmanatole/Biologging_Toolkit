@@ -1,6 +1,6 @@
 import torch
 from torch import nn, tensor, utils, device, cuda, optim, long, save
-from SES_tags.wrapper import Wrapper
+from Biologging_Toolkit.wrapper import Wrapper
 import numpy as np
 from typing import Union, Tuple, List
 from sklearn.model_selection import StratifiedKFold

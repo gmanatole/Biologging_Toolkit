@@ -1,11 +1,11 @@
 import numpy as np
 from glob import glob
 import os
-from SES_tags.wrapper import Wrapper
+from Biologging_Toolkit.wrapper import Wrapper
 import netCDF4 as nc
 from datetime import datetime, timezone
-from SES_tags.utils.inertial_utils import * 
-from SES_tags.utils.format_utils import *
+from Biologging_Toolkit.utils.inertial_utils import * 
+from Biologging_Toolkit.utils.format_utils import *
 import soundfile as sf
 from scipy.interpolate import interp1d
 
@@ -118,7 +118,7 @@ class Jerk(Wrapper):
 			self.A = data['A'][:].data
 			self.M = data['M'][:].data
 			length = np.max([len(self.jerk), self.A.shape[1], self.M.shape[1], len(self.P)])
-			self.sens_time = datetime.strptime(data.dephist_deploy_datetime_start, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
+			self.sens_time = datetime.strptime(data.dephist_device_datetime_start, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
 			self.A_cal_poly = data['A'].cal_poly[:].reshape(2, 3)
 			self.A_cal_map = data['A'].cal_map[:].reshape(3, 3)
 			self.M_cal_poly = data['M'].cal_poly[:].reshape(-1, 3)
@@ -214,7 +214,7 @@ class Jerk(Wrapper):
 		"""
 		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
 		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
-		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))]
+		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))].flatten()
 		xml_start_time = get_start_date_xml(xml_fns)
 		if samplerate == 50 :
 			idx_names = idx_names[:,0]

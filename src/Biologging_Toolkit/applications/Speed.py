@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.optimize import curve_fit, Bounds
-from SES_tags.wrapper import Wrapper
+from Biologging_Toolkit.wrapper import Wrapper
 from sklearn.model_selection import StratifiedKFold
 import pandas as pd
 

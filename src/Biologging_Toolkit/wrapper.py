@@ -2,6 +2,7 @@ import netCDF4 as nc
 import os
 import numpy as np
 from scipy.interpolate import interp1d
+from Biologging_Toolkit.utils.format_utils import *
 
 class Wrapper():
 
@@ -57,7 +58,7 @@ class Wrapper():
 		"""
 		self.ds.title = title
 
-	def create_time(self, time_data, overwrite = False, resample = True):
+	def create_time(self, time_data = None, time_path = None, overwrite = False, resample = True):
 		"""
 		Create or update the 'time' variable in the dataset.
 		This method creates a new 'time' dimension and variable, or updates an existing one, with the provided time data.
@@ -65,16 +66,25 @@ class Wrapper():
 		Parameters
 		----------
 		time_data : array-like
-			The time data to store in the 'time' variable. Should be an array-like structure of float values.
+			The time data to store in the 'time' variable. Should be an array-like structure of float values. Optional.
+		time_path : str
+			Provide path to sens5 structure to create time array.
 		overwrite : bool, optional
 			If True, any existing 'time' variable will be removed before creating the new one. Defaults to False.
 		"""
 		if overwrite :
 			if 'time' in self.ds.variables:
 				self.remove_variable('time')
-			
-		if resample :
-			time_data = np.arange(time_data[0], time_data[-1], self.dt)
+	
+		if time_data is not None :	
+			if resample :
+				time_data = np.arange(time_data[0], time_data[-1], self.dt)
+
+		if time_path :
+			ds = nc.Dataset(time_path)
+			length = len(ds['P'][:])
+			ds_sr = ds['P'].sampling_rate
+			time_data = get_start_time_sens(ds.dephist_device_datetime_start) + np.arange(0, length/ds_sr, np.round(1/ds_sr,2))
 
 		if 'time' not in self.ds.variables:
 			time_dim = self.ds.createDimension('time', len(time_data)) # unlimited axis (can be appended to)
