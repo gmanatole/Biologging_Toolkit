@@ -76,7 +76,8 @@ class Jerk(Wrapper):
 			  depid, 
 			  *,
 			  path,
-			  sens_path,
+			  sens_path = None,
+			  raw_path = None,
 			  data = {'time': None, 'jerk' : None, 'P' : None}
 			  ) :
 		
@@ -124,11 +125,13 @@ class Jerk(Wrapper):
 			self.M_cal_cross = data['M'].cal_cross[:].reshape(-1, 3)
 			self.M_cal_tseg = data['M'].cal_tseg[:]
 			self.M_cal_map = data['M'].cal_map[:].reshape(3, 3)
-			
+		
 		elif data['time'] is not None and data['jerk'] is not None and data['P'] is not None :
 			self.sens_time, self.jerk, self.P = data['time'], data['jerk'], data['P']
 			self.samplerate = np.round(1 / (self.sens_time[1]-self.sens_time[0]), 2)
-		
+
+		self.raw_path = raw_path
+
 		#Make P the same length as jerk
 		self.P = np.pad(self.P[:len(self.jerk)], (0, max(0, len(self.jerk) - len(self.P))), constant_values=np.nan)
 		
@@ -161,7 +164,7 @@ class Jerk(Wrapper):
 			peaks = self.hr_peaks
 			threshold = self.hr_threshold
 			blanking = self.hr_blanking
-			duraion = self.hr_duration
+			duration = self.hr_duration
 		else :
 			peaks = self.lr_peaks
 			threshold = self.lr_threshold
@@ -179,7 +182,8 @@ class Jerk(Wrapper):
 		if 'jerk' not in self.ds.variables:
 			jerk = self.ds.createVariable('jerk', np.float64, ('time',))
 			jerk.units = 'm.s**2'
-			jerk.long_name = 'High resolution jerks'
+			jerk.long_name = f'{resolution} resolution jerks'
+			jerk.raw_data_samplerate = self.raw_samplerate
 			jerk.threshold = threshold
 			jerk.threshold_units = 'm.s**2'
 			jerk.blanking = blanking
@@ -190,7 +194,7 @@ class Jerk(Wrapper):
 			jerk[:] = jerks
 		
 
-	def high_resolution_peaks(self, raw_path, samplerate = 200) :
+	def high_resolution_peaks(self, samplerate = 200) :
 		"""
 		Verify low-resolution jerk detections using high-resolution data.
 		
@@ -208,9 +212,9 @@ class Jerk(Wrapper):
 		This method assumes that raw data files are available and that the timestamps are correctly 
 		aligned with the low-resolution data. Detected peaks are validated against the high-resolution data.
 		"""
-		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
-		xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
-		xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))]
+		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
+		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
+		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))]
 		xml_start_time = get_start_date_xml(xml_fns)
 		if samplerate == 50 :
 			idx_names = idx_names[:,0]
@@ -240,7 +244,9 @@ class Jerk(Wrapper):
 				hr_peaks['datetime'].append(self.lr_peaks['datetime'][i])
 				hr_peaks['timestamp'].append(self.lr_peaks['timestamp'][i])
 		self.hr_peaks = {key: np.array(value) for key, value in hr_peaks.items()}
-
+		self.raw_samplerate = samplerate
+		
+		
 	## RENAME PROCESS RAW ???
 	## DON'T FORGET TO DO IT FOR 200 HZ
 	def low_resolution_peaks(self) :
@@ -264,6 +270,7 @@ class Jerk(Wrapper):
 		peak_times = self.sens_time[0] + self.lr_peaks['max_time']
 		self.lr_peaks['datetime'] = np.array(list(map(lambda x : datetime.fromtimestamp(x), peak_times)))
 		self.lr_peaks['timestamp'] =  peak_times
+		self.raw_samplerate = 50
 		
 
 	@staticmethod
