@@ -24,12 +24,14 @@ class Inertial(Wrapper):
 		depid, 
 		*, 
 		path, 
-		inertial_path : str = None,
+		sens_path : str = None,
+		raw_path : str = None,
 		data = {'time': None, 'A' : None, 'M' : None, 'P' : None},
 		declination : str = None,
 		flip : list[list] = [[-1,1,-1], [1,-1,1]],
 		ponderation : str = 'angle'
 		):
+		
 		'''
         Initializes an instance of the Inertial class, which handles loading and processing inertial sensor data.
 
@@ -75,7 +77,7 @@ class Inertial(Wrapper):
 			path
         )
 		if inertial_path :
-			sens = nc.Dataset(inertial_path)
+			sens = nc.Dataset(sens_path)
 			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_time_sens(sens.dephist_device_datetime_start)
 			self.inertial_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start    #Create time array for sens data
 			self.M, self.A, self.P = sens['M'][:].data, sens['A'][:].data, sens['P'][:].data
