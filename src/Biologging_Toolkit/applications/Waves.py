@@ -1,7 +1,7 @@
 import os
 from glob import glob
 import numpy as np
-from scipy.signal import welch, find_peaks, butter, filtfilt
+from scipy.signal import welch, find_peaks, butter, filtfilt, sosfilt
 import netCDF4 as nc
 from datetime import datetime, timezone
 import soundfile as sf
@@ -68,8 +68,10 @@ class Waves(Wrapper) :
 		if samplerate == 50 :
 			idx_names = idx_names[:,0]
 			
-		period, period_time = [], []
-		b, a = self.design_highpass_butterworth(1/15, samplerate, order=4)
+		period, period_time, med_period = [], [], []
+		
+		#Get parameters for pass band filter
+		params = butter(N=4, fs = samplerate, Wn=[1/12, 1], btype='bandpass', analog=False, output = 'sos')
 
 		surface_mask, surface_periods = self.get_surface(self.P, 2)
 		for i in np.unique(surface_periods) :
@@ -83,17 +85,26 @@ class Waves(Wrapper) :
 			A_surf = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
 			A_surf = (A_surf * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
 			
-			freq, psd = self.compute_psd(A_surf[:,0], samplerate)
-			psd = filtfilt(b, a, psd)
-			psd_peaks, _ = find_peaks(psd, threshold = 0.01)
+			A_filtered = sosfilt(params, A_surf[:,0])
+
+			# Find frequency by identifying peaks in Ax (ie inversion in direction)
+			Ax_peaks, _ = find_peaks(A_filtered, prominence = 1.5, distance = 200)
+			_med_period = np.nanmedian(Ax_peaks[1:] - Ax_peaks[:-1])/samplerate
+			
+			# Find peaks using FFT
+			spectrum = np.abs(np.fft.fft(A_filtered))
+			freqs = np.fft.fftfreq(n = len(spectrum), d = 1/samplerate)
+			psd_peaks, _ = find_peaks(spectrum[freqs > 0], threshold = 0.01)
 			try :
-				peak = psd_peaks[np.argmax(psd[psd_peaks])]
-				period.append(1 / freq[peak])
+				peak = np.argmax(spectrum[freqs > 0][psd_peaks])
+				period.append(1 / freqs[freqs > 0][peak])
 			except ValueError:
 				period.append(np.nan)
 			period_time.append(np.mean(surface_time))
+			med_period.append(_med_period)
 		self.period = np.array(period)
 		self.period_time = np.array(period_time)
+		self.med_period = np.array(med_period)
 		
 		
 	@staticmethod
@@ -112,19 +123,18 @@ class Waves(Wrapper) :
 		return surface, np.array(surf)
 	
 	
-	@staticmethod
-	def compute_psd(acc_data, sampling_rate):
-	    # Remove mean to detrend the data
-	    acc_data = acc_data - np.nanmean(acc_data)
-	    acc_data = np.concatenate((np.zeros(8000), acc_data, np.zeros(8000)))
-	    nperseg = 8192
-	    # Compute PSD using Welch's method
-	    freqs, psd = welch(acc_data, fs=sampling_rate, window='hann', nperseg=nperseg, noverlap=int(nperseg*0.8), scaling='density')
-	
-	    return freqs, psd
-	
-	@staticmethod
-	def design_highpass_butterworth(cutoff_freq, samplerate, order=4):
-		b, a = butter(N=order, fs = samplerate, Wn=cutoff_freq, btype='highpass', analog=False)
-		return b, a
 
+
+
+'''
+@staticmethod
+def compute_psd(acc_data, sampling_rate):
+    # Remove mean to detrend the data
+    acc_data = acc_data - np.nanmean(acc_data)
+    acc_data = np.concatenate((np.zeros(8000), acc_data, np.zeros(8000)))
+    nperseg = 8192
+    # Compute PSD using Welch's method
+    freqs, psd = welch(acc_data, fs=sampling_rate, window='hann', nperseg=nperseg, noverlap=int(nperseg*0.8), scaling='density')
+
+    return freqs, psd
+'''

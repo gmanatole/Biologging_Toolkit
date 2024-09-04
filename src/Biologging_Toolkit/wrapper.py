@@ -29,7 +29,7 @@ class Wrapper():
 		assert isinstance(self.depid, str), "Please specify an individual"
 
 		#Check if individual file already exists, if not create it
-		mode='a' if os.path.exists(os.path.join(self.path, self.depid + '.nc')) else 'w'
+		mode='r+' if os.path.exists(os.path.join(self.path, self.depid + '.nc')) else 'w'
 		self.ds = nc.Dataset(os.path.join(self.path, self.depid + '.nc'), mode = mode)
 		self.ds.sampling_rate = self.dt
 		self.ds.sampling_rate_units = 'Seconds'
