@@ -192,7 +192,7 @@ class Acoustic(Wrapper):
 		for idx, wav_file in enumerate(self.wav_fns[:10]) :
 
 			pbar.update(1)
-			pbar.set_description(f'Computing spectral power for file : {wav_file}')
+			pbar.set_description(f"Computing spectral power for file : {wav_file.split('/')[-1])}")
 			
 			# Fetch data corresponding to one wav file
 			data, _ = sf.read(wav_file, dtype = 'float32')
