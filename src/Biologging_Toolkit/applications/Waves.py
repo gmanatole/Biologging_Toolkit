@@ -22,7 +22,9 @@ class Waves(Wrapper) :
 		depid, 
 		*,
 		path,
-		sens_path
+		sens_path : str = None,
+		raw_path : str = None,
+		data = {'time': None, 'A' : None}
 		) :
 		
 		super().__init__(
@@ -39,12 +41,15 @@ class Waves(Wrapper) :
 			self.sens_time = datetime.strptime(data.dephist_deploy_datetime_start, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
 			self.A_cal_poly = data['A'].cal_poly[:].reshape(2, 3)
 			self.A_cal_map = data['A'].cal_map[:].reshape(3, 3)
+		elif data['A'] is not None and data['time'] is not None :
+			self.A = data['A']
+			self.inertial_time = data['time']
+			self.samplerate = self.inertial_time[1]-self.inertial_time[0]
 	
-		#Make P the same length as jerk
-		self.P = np.pad(self.P[:self.A.shape[1]], (0, max(0, self.A.shape[1] - len(self.P))), constant_values=np.nan)
-	
-	
-	def get_wave_period(self, raw_path, samplerate = 200) :
+		self.raw_path = raw_path
+		
+		
+	def get_wave_period(self, samplerate = 200) :
 		"""
 		
 		This method reads high-resolution data from the raw sensor files (swv), aligns them with the
@@ -55,9 +60,9 @@ class Waves(Wrapper) :
 		raw_path : str
 			Path to the directory containing the raw sensor data files (swv).
 		"""
-		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
-		xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
-		xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))]
+		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
+		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
+		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))]
 		xml_start_time = get_start_date_xml(xml_fns)
 		idx_names = np.array(get_xml_columns(xml_fns[0], cal='acc', qualifier2='d4'))
 		if samplerate == 50 :

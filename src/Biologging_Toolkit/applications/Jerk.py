@@ -72,6 +72,7 @@ class Jerk(Wrapper):
 	hr_blanking = 0.25
 	hr_duration = 0.02
 	
+	
 	def __init__(self, 
 			  depid, 
 			  *,
@@ -160,7 +161,7 @@ class Jerk(Wrapper):
 		self.low_resolution_peaks()
 		
 		if resolution == 'high' :
-			self.high_resolution_peaks()
+			self.check_peaks()
 			peaks = self.hr_peaks
 			threshold = self.hr_threshold
 			blanking = self.hr_blanking
@@ -192,20 +193,91 @@ class Jerk(Wrapper):
 			jerk.duration_comment = 'Maximum duration of peaks'
 			jerk.duration_units = 's'
 			jerk[:] = jerks
+	
+	def low_resolution_peaks(self) :
+		"""
+		Detect peaks using low-resolution jerk data.
 		
+		This method processes the jerk data at a low sampling rate to identify peaks that exceed the 
+		specified threshold and respect the blanking and duration conditions.
+		The detected peaks, along with their properties (start time, end time, max time, etc.), are stored in the `lr_peaks` attribute.
+		
+		"""
+		
+		cc, cend, peak_time, peak_max, minlen = self.get_peaks(self.jerk, self.samplerate, self.lr_blanking, self.lr_threshold, self.lr_duration)
+		self.lr_peaks = {}
+		self.lr_peaks['start_time'] = cc / self.samplerate  #in seconds
+		self.lr_peaks['end_time'] = cend / self.samplerate  #in seconds
+		self.lr_peaks['max_time'] = peak_time / self.samplerate #in seconds
+		self.lr_peaks['max'] = peak_max
+		self.lr_peaks['duration'] = self.lr_peaks['end_time'] - self.lr_peaks['start_time']
+		self.lr_peaks['depth'] = self.P[cc]
+		peak_times = self.sens_time[0] + self.lr_peaks['max_time']
+		self.lr_peaks['datetime'] = np.array(list(map(lambda x : datetime.fromtimestamp(x), peak_times)))
+		self.lr_peaks['timestamp'] =  peak_times
+		self.raw_samplerate = 50
+
 
 	def high_resolution_peaks(self, samplerate = 200) :
 		"""
-		Verify low-resolution jerk detections using high-resolution data.
+		Get peaks in jerk data based on high resolution raw data.
 		
-		This method reads high-resolution data from the raw sensor files (swv), aligns them with the
-		corresponding low-resolution peaks, and detects peaks at a higher sampling rate. The detected
-		peaks are stored in the `hr_peaks` attribute.
+		This method reads high-resolution data from the raw sensor files (swv) and detects peaks.
+		The detected peaks are stored in the `hr_peaks` attribute.
 		
 		Parameters
 		----------
 		raw_path : str
-			Path to the directory containing the raw sensor data files (swv).
+			Either 50 or 200. Samplerate used to read DTAG4 accelerometer data.
+		
+		Notes
+		-----
+		It is recommanded to used low_resolution_peaks and check_peaks (forward method) to save computational resources.
+		"""
+		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
+		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
+		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))].flatten()
+		xml_start_time = get_start_date_xml(xml_fns)
+		if samplerate == 50 :
+			idx_names = idx_names[:,0]
+		
+		hr_peaks = {'start_time':[],'end_time':[],'max_time':[],'max':[],'duration':[],'depth':[],'datetime':[],'timestamp':[]}	
+		idx_names = get_xml_columns(xml_fns[0], cal='acc', qualifier2='d4') 
+		
+		for i, swv_fn in enumerate(swv_fns) :
+
+			sig, fs = sf.read(swv_fn)
+			A = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
+			A = (A_peak * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
+			jerk = self.norm_jerk(A, fs)
+			cc, cend, peak_time, peak_max, minlen = self.get_peaks(jerk = jerk,
+									samplerate = fs,
+									threshold = self.hr_threshold,
+									blanking = self.hr_blanking,
+									duration = self.hr_duration)
+			hr_peaks['start_time'].extend(xml_start_time[i] + cc / samplerate)
+			hr_peaks['end_time'].extend(xml_start_time[i] + cend / samplerate)
+			hr_peaks['max_time'].extend(xml_start_time[i] + peak_time / samplerate)
+			hr_peaks['max'].append(peak_max)
+		indices = np.searchsorted(self.ds['time'][:], hr_peaks['max_time'], side='right') - 1
+		hr_peaks['duration'] = hr_peaks['end_time'] - hr_peaks['start_time']
+		hr_peaks['depth'] = self.ds['depth'][:].data[indices]
+		hr_peaks['samplerate'] = samplerate
+		self.hr_peaks = {key: np.array(value) for key, value in hr_peaks.items()}
+			
+		
+	def check_peaks(self, samplerate = 200) :
+		"""
+		Verify low-resolution jerk detections using high-resolution data from DTAG4.
+		
+		This method reads high-resolution data from the raw sensor files (swv), aligns them with the
+		corresponding low-resolution peaks, and detects peaks at a higher sampling rate. The detected
+		peaks are stored in the `hr_peaks` attribute.	
+		
+		Parameters
+		----------
+		raw_path : str
+			Either 50 or 200. Samplerate used to read DTAG4 accelerometer data.
 		
 		Notes
 		-----
@@ -247,32 +319,6 @@ class Jerk(Wrapper):
 		self.raw_samplerate = samplerate
 		
 		
-	## RENAME PROCESS RAW ???
-	## DON'T FORGET TO DO IT FOR 200 HZ
-	def low_resolution_peaks(self) :
-		"""
-		Detect peaks using low-resolution jerk data.
-		
-		This method processes the jerk data at a low sampling rate to identify peaks that exceed the 
-		specified threshold and respect the blanking and duration conditions.
-		The detected peaks, along with their properties (start time, end time, max time, etc.), are stored in the `lr_peaks` attribute.
-		
-		"""
-		
-		cc, cend, peak_time, peak_max, minlen = self.get_peaks(self.jerk, self.samplerate, self.lr_blanking, self.lr_threshold, self.lr_duration)
-		self.lr_peaks = {}
-		self.lr_peaks['start_time'] = cc / self.samplerate  #in seconds
-		self.lr_peaks['end_time'] = cend / self.samplerate  #in seconds
-		self.lr_peaks['max_time'] = peak_time / self.samplerate #in seconds
-		self.lr_peaks['max'] = peak_max
-		self.lr_peaks['duration'] = self.lr_peaks['end_time'] - self.lr_peaks['start_time']
-		self.lr_peaks['depth'] = self.P[cc]
-		peak_times = self.sens_time[0] + self.lr_peaks['max_time']
-		self.lr_peaks['datetime'] = np.array(list(map(lambda x : datetime.fromtimestamp(x), peak_times)))
-		self.lr_peaks['timestamp'] =  peak_times
-		self.raw_samplerate = 50
-		
-
 	@staticmethod
 	def get_peaks(jerk, samplerate, blanking, threshold, duration):
 		"""
@@ -410,262 +456,3 @@ class Jerk(Wrapper):
 		return jerk
 
 
-'''class Jerk:
-
-    def __init__(self, x, x2, fs=16, fc=2.64, timeDays=0):
-        self.x = np.array(x) if not isinstance(x, np.ndarray) else x
-        self.x2 = np.array(x2) if not isinstance(x2, np.ndarray) else x2
-        self.fs = fs
-        self.fc = fc
-        self.timeDays = timeDays
-        self.timeRef = np.copy(self.x[:, 0])
-        self.filtered_x = None
-        self.kmeans_model = None
-
-
-	def fullbw_jerks(self):
-		if dys is None:
-			dys = [0]
-		if len(dys) == 1 or dys[1] < 1:
-			dys.append(len(self.P) / (self.samplerate * 24 * 3600))
-		
-		dd = np.array(dys) * 24 * 3600
-		JT = {
-		'time': [], 'dur': [], 'dpth': [], 'rmsJ': [], 'cond': [], 'angle': [],
-		'maxA': [], 'maxJ': [], 'maxAan': [], 'rmsMJ': [], 'maxMJ': []
-		}
-		
-		while True:
-			if len(dd) == 2 and dd[0] >= dd[1]:
-				break
-			print(f'Processing day {dd[0] / (24 * 3600):.1f} of {dys[1]:.1f}')
-		
-			X = d3getswv(dd[0] + np.array([0, 6 * 3600]), recdir, depid)
-			if len(X['x']) == 0:
-				break
-		
-			Ps = crop_to(P_data, pfs, dd[0] + np.array([0, 6 * 3600]))
-			MM = crop_to(M_data, pfs, dd[0] + np.array([0, 6 * 3600]))
-			
-			As = np.vstack(X['x'][:3])
-			As = (As * A_cal_poly[:, 0] + A_cal_poly[:, 1]) @ A_cal_map
-			
-			Ms = np.vstack(X['x'][3:6])
-			kk = nearest(M_cal_tseg, dd[0], -1)
-			mpol = M_cal_poly[:, 2 * (kk - 1):(2 * kk)]
-			mcross = M_cal_cross[:, 3 * (kk - 1):(3 * kk)]
-			Ms = (Ms * mpol[:, 0] + mpol[:, 1]) @ mcross
-			Ms = decdc(Ms, 2) @ M_cal_map
-			mfs = X['fs'][3] / 2
-			MJ = self.njerk(Ms, mfs) / np.nanmean(norm(MM))
-			
-			afs = X['fs'][0]
-			Js = self.njerk(self.A, self.samplerate)
-			psi = interp2length(Ps, pfs, afs, len(As))
-			Js[psi < 20] = np.nan
-			jpk = peak_finder(Js, afs, thr, [BLNK, MINDUR], 0)
-			
-			if len(jpk['start_time']) > 0:
-				n = len(jpk['start_time'])
-				JT['time'].extend(jpk['start_time'] + dd[0])
-				dd[0] += 6 * 3600
-			else:
-				dd[0] += 6 * 3600
-				continue
-			
-			Af = comp_filt(As, afs, [3, 50])
-			Ah = Af[1]
-			R = np.full((n, 8), np.nan)
-			
-			for k in range(n):
-				kp = np.arange(round(afs * (jpk['start_time'][k] - 0.15)), round(afs * (jpk['end_time'][k] + 0.15)))
-				if np.any(kp < 1) or np.any(kp > len(As)):
-					continue
-				R[k, 0] = np.sqrt(np.nanmean(np.diff(As[kp, :], axis=0)**2))
-				
-				km = np.arange(round(mfs * (jpk['start_time'][k] - 0.15)), round(mfs * (jpk['end_time'][k] + 0.15)))
-				if np.any(km < 1) or np.any(km > len(MJ)):
-					continue
-				R[k, 1] = np.sqrt(np.nanmean(MJ[km]**2))
-				R[k, 2] = np.max(Js[kp])
-				R[k, 7] = np.nanmax(MJ[km])
-				
-				ah = Ah[kp, :]
-				m, km_max = np.max(norm2(ah)), np.argmax(norm2(ah))
-				R[k, 3:5] = [m, np.real(np.arccos(np.abs(ah[km_max, 0] / m)))]
-				
-				if not np.any(np.isnan(ah)):
-					V, D = eig(ah.T @ ah)
-					D = np.diag(D)
-					D_sorted_indices = np.argsort(D)
-					R[k, 5:7] = [D[2] / D[1], np.real(np.arccos(np.abs(V[0, D_sorted_indices[2]])))]
-			
-			JT['dur'].extend(jpk['end_time'] - jpk['start_time'])
-			JT['dpth'].extend(Ps[np.clip(np.round(jpk['start_time'] * pfs).astype(int), 1, len(Ps) - 1)])
-			JT['rmsJ'].extend(R[:, 0])
-			JT['maxJ'].extend(R[:, 2])
-			JT['maxA'].extend(R[:, 3])
-			JT['maxAan'].extend(R[:, 4])
-			JT['rmsMJ'].extend(R[:, 1])
-			JT['maxMJ'].extend(R[:, 7])
-			JT['cond'].extend(R[:, 5])
-			JT['angle'].extend(R[:, 6])
-		
-		# JT['fstlst'] = pcas_in_dives(P, JT['time'])
-		JT['sa'], JT['ttf'], JT['df'] = sunangle(depid, JT['time'])
-		JT['THR'] = thr
-		JT['BLNK'] = BLNK
-		JT['MINDUR'] = MINDUR
-		
-		return JT
-	
-    def preprocess_time(self):
-        """Preprocess time data and segment it if required."""
-        if self.timeDays != 0:
-            timeSinceStart = (self.timeRef - self.timeRef[0]).astype(float) / (24 * 60 * 60)
-            refMax = np.floor(np.max(timeSinceStart) / self.timeDays)
-            refBreak = np.arange(0, refMax + 1) * self.timeDays
-            refBreak[-1] += self.timeDays
-
-            timeBin = np.digitize(timeSinceStart, refBreak, right=True)
-            return timeBin
-        return None
-
-    def filter_data(self):
-        """Apply a high-pass Butterworth filter to the data."""
-        bf_pca = signal.butter(3, self.fc / (0.5 * self.fs), btype='high', output='sos')
-        self.filtered_x = signal.sosfiltfilt(bf_pca, self.x[:, 1:4], axis=0)
-
-        # Handle NaN values
-        nas = np.isnan(self.filtered_x)
-        nas_vector = np.logical_or.reduce(nas, axis=1)
-        if np.any(nas_vector):
-            print("NAs found and replaced by 0. NA proportion:", np.mean(nas_vector))
-            self.filtered_x[nas_vector, :] = 0
-        
-        # Smoothing using a moving average
-        self.filtered_x = np.concatenate(
-            (np.zeros((12, 3)), signal.sosfiltfilt(np.ones(25) / 25, self.filtered_x, axis=0), np.zeros((12, 3))),
-            axis=0
-        )
-
-    def apply_kmeans(self):
-        """Apply KMeans clustering to identify high states."""
-        self.kmeans_model = KMeans(n_clusters=2).fit(self.filtered_x)
-        high_state = np.argmax(self.kmeans_model.cluster_centers_, axis=0)
-        logicalHigh = self.kmeans_model.labels_ == high_state
-        self.filtered_x = logicalHigh.astype(float)
-
-    def combine_data(self):
-        """Combine the processed data."""
-        x_combined = np.prod(self.filtered_x, axis=1)
-        temp_x = np.column_stack((x_combined, self.timeRef))
-        temp_x = np.max(temp_x, axis=0)
-        return temp_x[:, np.newaxis]
-
-    def process(self):
-        """Run the full process and return the final result."""
-        self.preprocess_time()
-        self.filter_data()
-        self.apply_kmeans()
-        return self.combine_data()
-
-import pandas as pd
-
-class PreyCatchAttemptBehaviours:
-    def __init__(self, x, x2, fs=16, fc=2.64, timeDays=0):
-        """
-        Initialize the object with necessary parameters and data.
-        
-        Args:
-        - x: Pandas DataFrame containing columns 'time', 'ax', 'ay', 'az', 'segmentID'.
-        - x2: segmentID identifying continuous time segments.
-        - fs: Sampling frequency of signal (default is 16Hz).
-        - fc: Frequency above which signals across x, y, and z axes are retained.
-        - timeDays: Time period over which KMeans clustering should be performed.
-                    Leave as zero to have no time grouping in KMeans generation.
-        """
-        if not isinstance(x, pd.DataFrame):
-            raise ValueError("Input x must be a Pandas DataFrame")
-        self.x = x
-        self.x2 = x2
-        self.fs = fs
-        self.fc = fc
-        self.timeDays = timeDays
-        self.timeRef = self.x['time'].copy()
-
-    def preprocess_time(self):
-        """Preprocess the time data and create time bins if required."""
-        if self.timeDays != 0:
-            timeSinceStart = (self.timeRef - self.timeRef.iloc[0]).dt.total_seconds() / (24 * 60 * 60)
-            refMax = np.floor(timeSinceStart.max() / self.timeDays)
-            refBreak = np.arange(0, refMax + 1) * self.timeDays
-            refBreak = np.append(refBreak, refBreak[-1] + self.timeDays)
-
-            self.x['timeBin'] = np.digitize(timeSinceStart, refBreak, right=False)
-            del refBreak, timeSinceStart
-
-    def apply_high_pass_filter(self):
-        """Apply a high-pass Butterworth filter to the data."""
-        sos = signal.butter(3, self.fc / (0.5 * self.fs), btype='high', output='sos')
-        
-        def filter_func(col):
-            return signal.sosfiltfilt(sos, col)
-        
-        self.x[['ax', 'ay', 'az']] = self.x.groupby(self.x2)[['ax', 'ay', 'az']].transform(filter_func)
-
-        # Handle NaN values
-        nas = self.x[['ax', 'ay', 'az']].isna()
-        nas_vector = nas.any(axis=1)
-        if nas_vector.any():
-            print(f"NAs found and replaced by 0. NA proportion: {nas_vector.mean()}")
-            self.x.loc[nas_vector, ['ax', 'ay', 'az']] = 0
-
-    def smooth_data(self):
-        """Apply a smoothing operation to the data using a rolling standard deviation."""
-        def smooth_func(col):
-            return np.concatenate((np.zeros(12), pd.Series(col).rolling(window=25, min_periods=1).std().fillna(0).values, np.zeros(12)))
-
-        self.x[['ax', 'ay', 'az']] = self.x.groupby(self.x2)[['ax', 'ay', 'az']].transform(smooth_func)
-
-    def apply_kmeans(self):
-        """Apply KMeans clustering to classify data points."""
-        def kmeans_func(group):
-            km = KMeans(n_clusters=2)
-            km.fit(group)
-            high_state = np.argmax(km.cluster_centers_)
-            return (km.labels_ == high_state).astype(float)
-        
-        if self.timeDays != 0:
-            self.x[['ax', 'ay', 'az']] = self.x.groupby('timeBin')[['ax', 'ay', 'az']].transform(kmeans_func)
-        else:
-            self.x[['ax', 'ay', 'az']] = self.x[['ax', 'ay', 'az']].transform(kmeans_func)
-
-    def combine_data(self):
-        """Combine the processed data into a final result."""
-        self.x['pca'] = self.x[['ax', 'ay', 'az']].prod(axis=1)
-        result = self.x[['time', 'pca']].groupby('time').max().reset_index()
-        return result
-
-    def process(self):
-        """Run the full process and return the final result."""
-        self.preprocess_time()
-        self.apply_high_pass_filter()
-        self.smooth_data()
-        self.apply_kmeans()
-        return self.combine_data()
-
-# Example usage
-data = pd.DataFrame({
-    'time': pd.date_range(start='2023-01-01', periods=100, freq='S'),
-    'ax': np.random.randn(100),
-    'ay': np.random.randn(100),
-    'az': np.random.randn(100),
-    'segmentID': np.repeat([1, 2, 3, 4], 25)
-})
-
-pcab = PreyCatchAttemptBehaviours(x=data, x2=data['segmentID'])
-result = pcab.process()
-print(result)
-
-'''

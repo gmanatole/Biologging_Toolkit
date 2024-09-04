@@ -7,7 +7,18 @@ import pandas as pd
 
 class Speed(Wrapper) :
 
-	def __init__(self, depid, *, path, threshold = 20):
+	def __init__(self, 
+			  depid, 
+			  *, 
+			  path, 
+			  threshold = 20
+			  ):
+		
+		"""
+		This class uses processed dataset to estimate the animal's speed.
+		The main method is to use Euler angles to get the speed from the pitch and vertical speed.
+		If acoustic data is available in the data structure a model can be fitted using the previous speed estimation.
+		"""
 		
 		self.threshold = threshold
 		super().__init__(
