@@ -64,7 +64,7 @@ class Waves(Wrapper) :
 			idx_names = idx_names[:,0]
 			
 		period, period_time = [], []
-		b, a = self.design_lowpass_butterworth(1/20, samplerate, order=4)
+		b, a = self.design_highpass_butterworth(1/15, samplerate, order=4)
 
 		surface_mask, surface_periods = self.get_surface(self.P, 2)
 		for i in np.unique(surface_periods) :
@@ -77,6 +77,7 @@ class Waves(Wrapper) :
 					 stop = int((surface_time[-1] - xml_start_time[fn_idx] + 1)*fs))
 			A_surf = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
 			A_surf = (A_surf * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
+			
 			freq, psd = self.compute_psd(A_surf[:,0], samplerate)
 			psd = filtfilt(b, a, psd)
 			psd_peaks, _ = find_peaks(psd, threshold = 0.01)
@@ -110,16 +111,15 @@ class Waves(Wrapper) :
 	def compute_psd(acc_data, sampling_rate):
 	    # Remove mean to detrend the data
 	    acc_data = acc_data - np.nanmean(acc_data)
-
+	    acc_data = np.concatenate((np.zeros(8000), acc_data, np.zeros(8000)))
+	    nperseg = 8192
 	    # Compute PSD using Welch's method
-	    freqs, psd = welch(acc_data, fs=sampling_rate, window='hann', nperseg=8192, scaling='density')
+	    freqs, psd = welch(acc_data, fs=sampling_rate, window='hann', nperseg=nperseg, noverlap=int(nperseg*0.8), scaling='density')
 	
 	    return freqs, psd
 	
 	@staticmethod
-	def design_lowpass_butterworth(cutoff_freq, sampling_rate, order=4):
-		nyquist = 0.5 * sampling_rate
-		normalized_cutoff = cutoff_freq / nyquist
-		b, a = butter(N=order, Wn=normalized_cutoff, btype='high', analog=False)
+	def design_highpass_butterworth(cutoff_freq, samplerate, order=4):
+		b, a = butter(N=order, fs = samplerate, Wn=cutoff_freq, btype='highpass', analog=False)
 		return b, a
 
