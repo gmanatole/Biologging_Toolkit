@@ -172,8 +172,6 @@ class Acoustic(Wrapper):
 		        scale_psd = 2.0 / (win.sum() ** 2)
 
 		# Get FFT parameters
-		#Nbech = np.size(data)
-		#Nbwin = int((Nbech - self.params['offset']) / self.params['offset'])
 		freqs = np.fft.rfftfreq(self.params['nfft'], d=1 / self.samplerate)
 		Noverlap = int(self.params['window_size'] * self.params['overlap'] / 100)
 		Nbech = self.params['duration'] * self.samplerate
@@ -195,10 +193,10 @@ class Acoustic(Wrapper):
 			pbar.set_description(f"Computing spectral power for file : {wav_file.split('/')[-1]}")
 			
 			# Fetch data corresponding to one wav file
-			data, _ = sf.read(wav_file, dtype = 'float32')
-			data = self.normalize(data)
+			_data, _ = sf.read(wav_file, dtype = 'float32')
+			data = self.normalize(_data)
+			del _data
 			_time_diffs = time_diffs[indices == idx]
-			
 			# Read signal at correct timestamp
 			for j in range(len(_time_diffs)):
 				'''sig, _ = sf.read(wav_file,
@@ -207,7 +205,6 @@ class Acoustic(Wrapper):
 					 dtype = 'float32'
 					 )'''
 				sig = data[int(_time_diffs[j] * self.samplerate) : int((_time_diffs[j] + self.params['duration']) * self.samplerate)]
-				sig = self.normalize(sig)
 				Sxx = np.zeros([Nfreqs, Nbwin])
 				#Compute the spectrogram for desired duration and with chosen window parameters
 				for idwin in range(Nbwin):
@@ -235,7 +232,7 @@ class Acoustic(Wrapper):
 			del data
 			gc.collect()
 			
-			pbar.set_description('Normalizing and saving data')
+		pbar.set_description('Normalizing and saving data')
 			
 		# Normalize spectrogram
 		if self.data_normalization == "instrument":
