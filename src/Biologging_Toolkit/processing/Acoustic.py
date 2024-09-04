@@ -189,7 +189,7 @@ class Acoustic(Wrapper):
 		
 		pbar = tqdm(total = len(self.wav_start_time), leave = True, position = 0)
 	
-		for idx, wav_file in enumerate(self.wav_fns[:10]) :
+		for idx, wav_file in enumerate(self.wav_fns) :
 
 			pbar.update(1)
 			pbar.set_description(f"Computing spectral power for file : {wav_file.split('/')[-1]}")
