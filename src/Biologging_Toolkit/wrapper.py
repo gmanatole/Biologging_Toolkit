@@ -25,12 +25,13 @@ class Wrapper():
 		"""
 
 		self.depid = depid
+		self.ds_name = depid + '_acoustic' if self.__class__.__name__ == 'Acoustic' else depid + '_sens'
 		self.path = path if path else os.getcwd()
 		assert isinstance(self.depid, str), "Please specify an individual"
 
 		#Check if individual file already exists, if not create it
-		mode='r+' if os.path.exists(os.path.join(self.path, self.depid + '.nc')) else 'w'
-		self.ds = nc.Dataset(os.path.join(self.path, self.depid + '.nc'), mode = mode)
+		mode='r+' if os.path.exists(os.path.join(self.path, self.ds_name + '.nc')) else 'w'
+		self.ds = nc.Dataset(os.path.join(self.path, self.ds_name + '.nc'), mode = mode)
 		self.ds.sampling_rate = self.dt
 		self.ds.sampling_rate_units = 'Seconds'
 		self.dataset_name
@@ -155,9 +156,6 @@ class Wrapper():
 		Additional attributes for the variable. For example, `units='units'`, `long_name='Variable Name'`.
 		"""
 
-		# Ensure time data matches existing time data in the dataset
-		if 'time' not in self.ds.variables:
-			raise ValueError("The dataset does not contain a 'time' variable.")
 
 		# Overwrite the variable if it already exists
 		if overwrite and var_name in self.ds.variables:
@@ -207,7 +205,7 @@ class Wrapper():
 		"""
 		if var_name in self.ds.variables:
 			# Create a new dataset and copy the variables excluding the one to remove
-			new_file_path = os.path.join(self.path, self.depid + '_new.nc')
+			new_file_path = os.path.join(self.path, self.ds_name + '_new.nc')
 			with nc.Dataset(new_file_path, 'w', format='NETCDF4') as new_ds:
 				# Copy dimensions
 				for name, dimension in self.ds.dimensions.items():
@@ -224,8 +222,8 @@ class Wrapper():
 
 		# Replace old file with new file
 		self.ds.close()
-		os.rename(new_file_path, os.path.join(self.path, self.depid + '.nc'))
-		self.ds = nc.Dataset(os.path.join(self.path, self.depid + '.nc'), mode='a', format='NETCDF4')
+		os.rename(new_file_path, os.path.join(self.path, self.ds_name + '.nc'))
+		self.ds = nc.Dataset(os.path.join(self.path, self.ds_name + '.nc'), mode='a', format='NETCDF4')
 
 
 
