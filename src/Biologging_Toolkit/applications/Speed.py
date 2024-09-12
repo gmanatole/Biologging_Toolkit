@@ -11,7 +11,8 @@ class Speed(Wrapper) :
 			  depid, 
 			  *, 
 			  path, 
-			  threshold = 20
+			  threshold = 20,
+			  freq = 60
 			  ):
 		
 		"""
@@ -20,21 +21,44 @@ class Speed(Wrapper) :
 		If acoustic data is available in the data structure a model can be fitted using the previous speed estimation.
 		"""
 		
-		self.threshold = threshold
 		super().__init__(
 			depid,
 			path
         )
+		self.freq = freq
+		self.threshold = threshold
 
-	def __call__(self, overwrite = False) :
-		self.forward()
+	def __call__(self, acoustic = True, overwrite = False) :
+		self.forward(acoustic, overwrite)
 		
-	def forward(self, overwrite = False, acoustic = True):
+	def forward(self, acoustic = True, overwrite = False):
 		
 		self.from_inertial()
+		if overwrite :
+			if 'inertial_speed' in self.ds.variables:
+				self.remove_variable('inertial_speed')
+
+		if 'inertial_speed' not in self.ds.variables:
+			inertial = self.ds.createVariable('inertial_speed', np.float64, ('time',))
+			inertial.units = 'm/s'
+			inertial.long_name = 'Speed of the animal'
+			inertial.measure = 'Computed using the elevation angle and the vertical speed'
+			inertial.note = 'Dive portions where elephant seal has elevation angle below 0.35 rad or vertical speed below 0.5 m/s are removed'
+			inertial[:] = self.inertial_speed
+		
 		if acoustic :
 			self.from_acoustic()
-		
+			if overwrite :
+				if 'acoustic_speed' in self.ds.variables:
+					self.remove_variable('acoustic_speed')
+	
+			if 'acoustic_speed' not in self.ds.variables:
+				acoustic = self.ds.createVariable('acoustic_speed', np.float64, ('time',))
+				acoustic.units = 'm/s'
+				acoustic.long_name = 'Speed of the animal'
+				acoustic.measure = f'Computed using flow noise at {self.freq} and fitted on inertial speed'
+				acoustic[:] = self.acoustic_speed
+				
 		
 	def from_inertial(self):
 		"""
@@ -45,15 +69,15 @@ class Speed(Wrapper) :
 		angle[angle < 0.35] = np.nan
 
 		dP = abs(self.ds['depth'][:][1:] - self.ds['depth'][:].data[:-1])
-		dP[dP < 0.5] = np.nan
+		dP[dP < 0.5 / self.ds.sampling_rate] = np.nan
 		
 		speed = dP / np.sin(angle[:-1]) / self.ds.sampling_rate
 		self.inertial_speed = np.append(speed, speed[-1])
 		
 
-	def from_acoustic(self, freq = 60):
+	def from_acoustic(self):
 		
-		freq_idx = np.argmin(abs(self.ds['frequency_spectrogram'][:] - freq))
+		freq_idx = np.argmin(abs(self.ds['frequency_spectrogram'][:] - self.freq))
 		noise_level = self.ds['spectrogram'][:, freq_idx].data
 		
 		if 'inertial_speed' not in dir(self) :
@@ -62,7 +86,7 @@ class Speed(Wrapper) :
 		def func(x, a, b, c): 
 			return a*x**2+b*x+c
 			
-		depth = [self.threshold,np.inf]  #depth (m) threshold
+		depth = [self.threshold,np.inf]  
 		classes = pd.cut(self.inertial_speed, bins=5, labels = [1,2,3,4,5]).to_numpy()
 		
 		mask_nan = (~np.isnan(classes)) & (~np.isnan(noise_level))
