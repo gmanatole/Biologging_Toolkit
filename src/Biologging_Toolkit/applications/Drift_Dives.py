@@ -97,9 +97,10 @@ class DriftDives(Wrapper) :
 		dive_type = np.full(len(self.ds['depth'][:]), 0)
 		pbar = tqdm(total = len(dive_type)-2*idx_bound-1, position = 0, leave = True)
 		pbar.set_description('Iterating through dataset')
-		for j in tqdm(range(idx_bound, len(dive_type)-idx_bound-1)) :
+		for j in range(idx_bound, len(dive_type)-idx_bound-1) :
 			if ((abs(self.ds['bank_angle'][:][j-self.analysis_length:j+self.analysis_length]) > 2).sum() / self.analysis_length > 0.98):
 				dive_type[j] =  1 
+			pbar.update(1)
 		self.inertial_drift = dive_type
 
 	def from_depth(self):
@@ -113,11 +114,12 @@ class DriftDives(Wrapper) :
 		dive_type = np.full(len(self.ds['depth'][:]), 0)
 		pbar = tqdm(total = len(dive_type)-2*idx_bound-1, position = 0, leave = True)
 		pbar.set_description('Iterating through dataset')
-		for j in tqdm(range(idx_bound, len(dive_type)-idx_bound-1)) :
+		for j in range(idx_bound, len(dive_type)-idx_bound-1) :
 			vertical_speed_before = (self.ds['depth'][:][j] - self.ds['depth'][:][j-idx_bound])/(self.ds['time'][:][j] - self.ds['time'][:][j-idx_bound]) 
 			vertical_speed_after = (self.ds['depth'][:][j+idx_bound] - self.ds['depth'][:][j])/(self.ds['time'][:][j+idx_bound] - self.ds['time'][:][j]) 
 			if (abs(vertical_speed_after) < 0.4) or abs((vertical_speed_before) < 0.4) :
-				 dive_type[j] = 1
+				dive_type[j] = 1
+			pbar.update(1)
 		self.depth_drift = dive_type
 
 
