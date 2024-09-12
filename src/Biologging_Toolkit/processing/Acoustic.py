@@ -9,7 +9,8 @@ from Biologging_Toolkit.wrapper import Wrapper
 from glob import glob
 import pdb
 import gc
-from joblib import Parallel, delayed
+from concurrent.futures import ProcessPoolExecutor
+
 
 class Acoustic(Wrapper):
 	"""
@@ -126,7 +127,6 @@ class Acoustic(Wrapper):
 
 		spectrogram_var[:] = log_spectro.T
 
-
 	def normalize(self, data) :
 		"""
 		Normalizes the input acoustic data based on the specified data_normalization method.
@@ -145,7 +145,7 @@ class Acoustic(Wrapper):
 		        / (20 * np.log10(self.params['instrument']['sensitivity'] / 1e6))
 		        / 10 ** (self.params['instrument']['gain_dB'] / 20))
 		return data
-		
+	
 	def compute_noise_level(self): 
 		"""
 		Computes the noise level of the provided acoustic data using windowed Fourier transforms.
@@ -259,3 +259,115 @@ class Acoustic(Wrapper):
 		wav_end_time = np.array(wav_end_time) + self.wav_start_time
 		self.wav_end_time = wav_end_time
 	
+	
+	def parallel_noise_level(self): 
+	    """
+	    Computes the noise level of the provided acoustic data using windowed Fourier transforms.
+	    Parameters
+	    ----------
+	    data: array-like
+	        The raw acoustic data for which the noise level is to be computed.
+	    Returns
+	    -------
+	    log_spectro: The computed and normalized spectrogram, representing the noise level in the data.
+	    """
+	    # Create scales wrt to user parameters
+	    win = np.hamming(self.params['window_size'])
+	    if self.params['nfft'] < self.params['window_size']:
+	        scale_psd = 1.0
+	    else:
+	        if self.spectro_normalization == "density":
+	            scale_psd = 2.0 / (((win * win).sum()) * self.samplerate)
+	        elif self.spectro_normalization == "spectrum":
+	            scale_psd = 2.0 / (win.sum() ** 2)
+	    
+	    # Get FFT parameters
+	    freqs = np.fft.rfftfreq(self.params['nfft'], d=1 / self.samplerate)
+	    Noverlap = int(self.params['window_size'] * self.params['overlap'] / 100)
+	    Nbech = self.params['duration'] * self.samplerate
+	    Noffset = self.params['window_size'] - Noverlap
+	    Nbwin = int((Nbech - self.params['window_size']) / Noffset)
+	    Nfreqs = np.size(freqs)
+	    
+	    # Fetch wav starting times wrt to netCDF structure
+	    matches = (self.ds['time'][:].data[:, None] >= self.wav_start_time) & (self.ds['time'][:].data[:, None] <= self.wav_end_time)
+	    indices = np.where(matches.any(axis=1), matches.argmax(axis=1), -1)
+	    time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.wav_start_time[indices], np.nan)
+	    
+	    # Initialize spectrogram
+	    spectro = np.full([np.size(freqs), len(indices)], np.nan)
+	    
+	    # Set up the progress bar
+	    pbar = tqdm(total=len(self.wav_start_time), leave=True, position=0)
+	    
+	    # Use ProcessPoolExecutor to parallelize processing of wav files
+	    with ProcessPoolExecutor() as executor:
+	        futures = []
+	        for idx, wav_file in enumerate(self.wav_fns):
+	            time_diffs_for_file = time_diffs[indices == idx]  # Only pass relevant time_diffs for each file
+	            futures.append(executor.submit(
+	                process_wav_file, 
+	                wav_file, 
+	                time_diffs_for_file, 
+	                self.samplerate, 
+	                self.params, 
+	                freqs, 
+	                Nbwin, 
+	                Noffset, 
+	                win, 
+	                scale_psd, 
+	                Nfreqs
+	            ))
+	        
+	        # Collect results
+	        for idx, future in enumerate(tqdm(futures, leave=True, position=1, desc="Processing results")):
+	            file_spectro = future.result()
+	            spectro[:, np.where(indices == idx)[0]] = file_spectro
+	    
+	    pbar.set_description('Normalizing and saving data')
+		
+
+def process_wav_file(wav_file, time_diffs, samplerate, params, freqs, Nbwin, Noffset, win, scale_psd, Nfreqs):
+    """
+    Process a single wav file to compute its spectrogram.
+    This function is designed to be parallelized.
+    """
+    # Fetch data corresponding to one wav file
+    _data, _ = sf.read(wav_file, dtype='float32')
+    data = _data / np.max(np.abs(_data))  # Normalization function (simplified here)
+    del _data
+    file_spectro = np.full([np.size(freqs), len(time_diffs)], np.nan)
+    
+    # Read signal at correct timestamp
+    for j in range(len(time_diffs)):
+        sig = data[int(time_diffs[j] * samplerate): int((time_diffs[j] + params['duration']) * samplerate)]
+        Sxx = np.zeros([Nfreqs, Nbwin])
+        
+        # Compute the spectrogram for desired duration and with chosen window parameters
+        for idwin in range(Nbwin):
+            if params['nfft'] < params['window_size']:
+                x_win = sig[idwin * Noffset: idwin * Noffset + params['window_size']]
+                _, Sxx[:, idwin] = sg.welch(
+                    x_win,
+                    fs=samplerate,
+                    window="hamming",
+                    nperseg=int(params['nfft']),
+                    noverlap=int(params['nfft'] / 2),
+                    scaling="density",
+                )
+            else:
+                x_win = sig[idwin * Noffset: idwin * Noffset + params['window_size']]
+                if len(x_win) < params['window_size']:
+                    x_win = np.pad(x_win, (0, params['window_size'] - len(x_win)), 'constant', constant_values=0)
+                x_win = x_win * win
+                Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=params['nfft'])) ** 2
+            Sxx[:, idwin] *= scale_psd
+            
+        file_spectro[:, j] = np.mean(Sxx, axis=1)
+        del sig, Sxx
+        gc.collect()
+    
+    del data
+    gc.collect()
+    
+    return file_spectro

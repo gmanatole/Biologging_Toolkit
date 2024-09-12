@@ -156,11 +156,7 @@ class Wrapper():
 		"""
 
 		# Ensure time data matches existing time data in the dataset
-		if 'time' in self.ds.variables:
-			existing_time = self.ds['time'][:]
-			if not np.array_equal(existing_time, time_data):
-				raise ValueError("Input time data does not match the existing time data in the dataset.")
-		else:
+		if 'time' not in self.ds.variables:
 			raise ValueError("The dataset does not contain a 'time' variable.")
 
 		# Overwrite the variable if it already exists
@@ -173,7 +169,7 @@ class Wrapper():
 			self.ds.createDimension('time', len(time_data))
 
 		#Interpolation to get same timestep as reference dataframe
-		interp = interp1d(time_data, var_data)
+		interp = interp1d(time_data, var_data, bounds_error = False)
 		var_data = interp(self.ds['time'][:].data)
 
 		# Create or update the variable

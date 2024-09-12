@@ -41,15 +41,15 @@ class Inertial(Wrapper):
             Identifier corresponding to the individual for whom data is being loaded (e.g., 'ml17_280a').
         path : str
             The path to the main dataset file required by the superclass `Wrapper`.
-        inertial_path : str, optional
+        sens_data : str, optional
             Path to the inertial dataset file (e.g., containing magnetometer and accelerometer data). 
             If provided, data will be loaded from this file. Default is None.
 		data : dic, optional
 			Dictionary containing time data 'time', and inertial data 'A' and 'M'. Depth data 'P' can be added for better euler angle estimations.
 	        A : array-like, optional
-	            Pre-loaded accelerometer data. Should be provided if `inertial_path` is not given. Default is None.
+	            Pre-loaded accelerometer data. Should be provided if `sens_path` is not given. Default is None.
 	        M : array-like, optional
-	            Pre-loaded magnetometer data. Should be provided if `inertial_path` is not given. Default is None.
+	            Pre-loaded magnetometer data. Should be provided if `sens_path` is not given. Default is None.
 			All data needs to be 1D and correspond to a regularly spaced time data.
         declination : str, optional
             Method to fetch declination data. Options include 'download' or path to declination already downloaded data. Default is 'download'.
@@ -69,14 +69,14 @@ class Inertial(Wrapper):
         IndexError
             Raised if the provided dataset does not contain magnetometer data, which is required for processing.
         ValueError
-            Raised if neither `inertial_path` nor both `A` and `M` are provided.
+            Raised if neither `sens_path` nor both `A` and `M` are provided.
         '''
 		
 		super().__init__(
 			depid,
 			path
         )
-		if inertial_path :
+		if sens_path :
 			sens = nc.Dataset(sens_path)
 			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_time_sens(sens.dephist_device_datetime_start)
 			self.inertial_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start    #Create time array for sens data
