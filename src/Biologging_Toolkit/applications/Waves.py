@@ -68,10 +68,10 @@ class Waves(Wrapper) :
 		if samplerate == 50 :
 			idx_names = idx_names[:,0]
 			
-		period, period_time, med_period = [], [], []
+		period, period_time, med_period, zc_period = [], [], [], []
 		
 		#Get parameters for pass band filter
-		params = butter(N=4, fs = samplerate, Wn=[1/12, 1], btype='bandpass', analog=False, output = 'sos')
+		params = butter(N=4, fs = samplerate, Wn=[1/12, 1/5], btype='bandpass', analog=False, output = 'sos')
 
 		surface_mask, surface_periods = self.get_surface(self.P, 2)
 		for i in np.unique(surface_periods) :
@@ -89,7 +89,11 @@ class Waves(Wrapper) :
 
 			# Find frequency by identifying peaks in Ax (ie inversion in direction)
 			Ax_peaks, _ = find_peaks(A_filtered, prominence = 1.5, distance = 200)
-			_med_period = np.nanmedian(Ax_peaks[1:] - Ax_peaks[:-1])/samplerate
+			_med_period = np.nanmedian(np.diff(Ax_peaks))/samplerate
+			
+			# Find frequency using zero crossings
+			zero_crossings = np.where(np.diff(np.sign(A_filtered)))[0]
+			_zc_period = np.nanmedian(np.diff(zero_crossings))/samplerate
 			
 			# Find peaks using FFT
 			spectrum = np.abs(np.fft.fft(A_filtered))
@@ -102,6 +106,8 @@ class Waves(Wrapper) :
 				period.append(np.nan)
 			period_time.append(np.mean(surface_time))
 			med_period.append(_med_period)
+			zc_period.append(_zc_period)
+		self.zc_period = np.array(zc_period)
 		self.period = np.array(period)
 		self.period_time = np.array(period_time)
 		self.med_period = np.array(med_period)
