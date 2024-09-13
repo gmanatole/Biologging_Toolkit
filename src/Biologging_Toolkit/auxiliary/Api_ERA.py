@@ -70,7 +70,7 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 		'time': hours,
 		'area' : area,
 		'download_format': 'unarchived',
-		'data_format': 'net_cdf',
+		'data_format': 'netcdf',
 		}
 
 	c.retrieve(dataset, request).download(filename)
