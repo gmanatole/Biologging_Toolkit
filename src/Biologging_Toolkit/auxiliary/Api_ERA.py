@@ -33,11 +33,7 @@ def make_cds_file(personnal_access_token, path):
 		    pass
 		path_to_api = os.path.join(os.path.expanduser("~"), "api/")
 	else :
-		try :
-		   os.mkdir(os.path.join(path+'api'))
-		except FileExistsError:
-		    pass
-		path_to_api = os.path.join(path, 'api')
+		path_to_api = path
 
 	os.chdir(path_to_api)
 	os.getcwd()
@@ -45,7 +41,8 @@ def make_cds_file(personnal_access_token, path):
 def return_cdsbeta(filename, variables, years, months, days, hours, area):
 
 	print('You have selected : \n')
-	sel = [print(variables) for data in variables]
+	for data in variables :
+		print(f'   - {data}')
 	print('\nfor the following times')
 	print(f'Years : {years} \n Months : {months} \n Days : {days} \n Hours : {hours}')
 
@@ -63,7 +60,7 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 		hours = ['00:00','01:00','02:00','03:00','04:00','05:00','06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00','23:00']
 
 
-	dataset = 'reanalysis-era5-pressure-levels'
+	dataset = 'reanalysis-era5-single-levels'
 	request = {
 		'product_type': ['reanalysis'],
 		'variable': variables,
