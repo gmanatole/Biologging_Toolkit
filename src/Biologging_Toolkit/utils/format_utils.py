@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 import numpy as np
 import calendar
 import time
-from Biologging_Toolkit.config.config import *
 import pandas as pd
+import netCDF4 as nc
+from Biologging_Toolkit.config.config import *
 
 def get_start_time_sens(x) :
 	"""
@@ -87,11 +88,24 @@ def get_xml_columns(path, **kwargs) :
 	
 	
 	
-	
-	
-	
-	
-	
+def get_boundaries_metadata(path) :
+	"""
+	Enter path to built data structure to get time and space boundaries.
+	This data can then be used to download ERA
+	"""
+	ds = nc.Dataset(path)
+	time_min = datetime.fromtimestamp(np.nanmin(ds['time'][:])).replace(minute = 0, second = 0)
+	time_max = datetime.fromtimestamp(np.nanmax(ds['time'][:]))
+	time_max = time_max.replace(hour=time_max.hour+1, minute = 0, second = 0)
+	print('Dataset begins at ', time_min)
+	print('and ends at       ', time_max)
+	lat_min =  np.floor(np.nanmin(ds['lat'][:]) * 4) / 4
+	lat_max =  np.ceil(np.nanmax(ds['lat'][:]) * 4) / 4
+	lon_min =  np.floor(np.nanmin(ds['lon'][:]) * 4) / 4	
+	lon_max =  np.ceil(np.nanmax(ds['lon'][:]) * 4) / 4
+	print('The GPS boundaries are :')
+	for bound, card in zip([lat_min, lat_max, lon_min, lon_max], ['South', 'North', 'West', 'East']):
+		print(f'    - {card:<6} : {bound: 0.2f}°')
 	
 	
 	
