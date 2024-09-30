@@ -107,8 +107,38 @@ def get_boundaries_metadata(path) :
 	for bound, card in zip([lat_min, lat_max, lon_min, lon_max], ['South', 'North', 'West', 'East']):
 		print(f'    - {card:<6} : {bound: 0.2f}°')
 	
-	
-	
+def to_timestamp(string: str) -> datetime:
+    if isinstance(string, datetime):
+        return string
+    try:
+        return datetime.strptime(string, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except ValueError:
+        try:
+            return datetime.strptime(string, "%Y-%m-%dT%H-%M-%S_%fZ")
+        except ValueError:
+            try:
+                return datetime.strptime(string, "%Y-%m-%dT%H:%M:%S.%f%z")
+            except ValueError:
+                try:
+                    return datetime.strptime(string, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    raise ValueError(
+                        f"The timestamp '{string}' must match either format %Y-%m-%dT%H:%M:%S.%fZ or %Y-%m-%dT%H-%M-%S_%fZ"
+                    )
+
+def get_epoch(df):
+    "Function that adds epoch column to dataframe"
+    df["timestamp"] = df.timestamp.apply(lambda x: to_timestamp(x)).dt.tz_localize(None)
+    if "epoch" in df.columns:
+        return df
+    try:
+        df["epoch"] = df.timestamp.apply(lambda x: x.timestamp())
+    except ValueError:
+        print(
+            "Please check that you have either a timestamp column (format ISO 8601 Micro s) or an epoch column"
+        )
+    df["timestamp"] = df.timestamp.apply(from_timestamp)
+    return df
 	
 	
 	
