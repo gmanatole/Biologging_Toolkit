@@ -60,9 +60,8 @@ class Acoustic(Wrapper):
         )
 		
 		self.wav_path = wav_path
-		self.get_timestamps()
-		
-		self.samplerate = sf.info(os.path.join(self.wav_fns[0])).samplerate
+
+		self.samplerate = sf.info(glob(os.path.join(self.wav_path, '*wav'))[0]).samplerate		
 		default = {'window_size' : 1024, 'nfft' : 1024, 'overlap' : 0, 'duration' : 3}
 		self.params = {**default, **kwargs}
 
@@ -248,16 +247,24 @@ class Acoustic(Wrapper):
 				
 		return log_spectro, freqs
 		
-	def get_timestamps(self) :
-		self.wav_fns = np.array(glob(os.path.join(self.wav_path, '*wav')))
-		xml_fns = np.array(glob(os.path.join(self.wav_path, '*xml')))
-		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.wav_path, '*dat.xml'))]
-		self.wav_start_time = get_start_date_xml(xml_fns)
-		wav_end_time = []
-		for file in self.wav_fns :
-			wav_end_time.append(sf.info(file).duration)
-		wav_end_time = np.array(wav_end_time) + self.wav_start_time
-		self.wav_end_time = wav_end_time
+
+	def get_timestamps(self, timestamp_path = None, from_raw = False) :
+		if from_raw :
+			self.wav_fns = np.array(glob(os.path.join(self.wav_path, '*wav')))
+			xml_fns = np.array(glob(os.path.join(self.wav_path, '*xml')))
+			xml_fns = xml_fns[xml_fns != glob(os.path.join(self.wav_path, '*dat.xml'))]
+			self.wav_start_time = get_start_date_xml(xml_fns)
+			wav_end_time = []
+			for file in self.wav_fns :
+				wav_end_time.append(sf.info(file).duration)
+			wav_end_time = np.array(wav_end_time) + self.wav_start_time
+			self.wav_end_time = wav_end_time
+		else :
+			_timestamp = get_epoch(pd.read_csv(timestamp_path))
+			self.wav_fns = np.array([os.path.join(self.wav_path, elem) for elem in _timestamp.filename.to_numpy()])
+			self.wav_start_time = _timestamp.epoch.to_numpy(dtype = np.float64)
+			self.wav_end_time = np.array([self.wav_start_time[i] + sf.info(self.wav_fns[i]).duration for i in range(len(self.wav_fns))])
+
 	
 	
 	def parallel_noise_level(self): 
