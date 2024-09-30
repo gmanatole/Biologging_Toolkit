@@ -139,8 +139,9 @@ def get_epoch(df):
         )
     df["timestamp"] = df.timestamp.apply(from_timestamp)
     return df
-	
-	
+
+def from_timestamp(date: datetime) -> str:
+    return datetime.strftime(date, "%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 	
 	
 	
