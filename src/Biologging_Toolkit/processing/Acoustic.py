@@ -235,17 +235,17 @@ class Acoustic(Wrapper):
 			
 		# Normalize spectrogram
 		if self.data_normalization == "instrument":
-		    log_spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
+		    spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
 
 		if self.data_normalization == "zscore":
 		    if self.spectro_normalization == "density":
 		        spectro *= self.samplerate / 2  # value around 0dB
-		        log_spectro = 10 * np.log10(spectro + (1e-20))
+		        spectro = 10 * np.log10(spectro + (1e-20))
 		    if self.spectro_normalization == "spectrum":
 		        spectro *= self.params['window_size'] / 2  # value around 0dB
-		        log_spectro = 10 * np.log10(spectro + (1e-20))
+		        spectro = 10 * np.log10(spectro + (1e-20))
 				
-		return log_spectro, freqs
+		return spectro, freqs
 		
 
 	def get_timestamps(self, timestamp_path = None, from_raw = False) :
