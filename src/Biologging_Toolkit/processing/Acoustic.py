@@ -239,7 +239,7 @@ class Acoustic(Wrapper):
 				spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
 				del sig, Sxx
 				gc.collect()
-				
+			print(spectro)	
 			del data
 			gc.collect()
 			
