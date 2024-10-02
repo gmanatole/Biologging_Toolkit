@@ -98,7 +98,7 @@ class Acoustic(Wrapper):
 		If frequency components (`freqs`) differ across files.
 		"""
 		
-		log_spectro, freqs = self.compute_noise_level()
+		spectro, freqs = self.compute_noise_level()
 		
 		# Create or retrieve the time dimension (assuming it's already in the dataset)
 		if 'time' not in self.ds.dimensions:
@@ -112,7 +112,7 @@ class Acoustic(Wrapper):
 				self.remove_variable('frequency_spectrogram')
 		
 		# Create or retrieve the frequency dimension and variable
-		freq_dim = self.ds.createDimension('frequency_spectrogram', log_spectro.shape[0])
+		freq_dim = self.ds.createDimension('frequency_spectrogram', spectro.shape[0])
 		freq_var = self.ds.createVariable('frequency_spectrogram', np.float32, ('frequency_spectrogram',))
 		freq_var.units = 'Hz'
 		freq_var.long_name = 'Frequency values'
@@ -124,7 +124,7 @@ class Acoustic(Wrapper):
 		spectrogram_var.db_type = 'absolute' if self.data_normalization == 'instrument' else 'relative'
 		spectrogram_var.long_name = 'Spectrogram data'
 
-		spectrogram_var[:] = log_spectro.T
+		spectrogram_var[:] = spectro.T
 
 	def normalize(self, data) :
 		"""
@@ -224,7 +224,7 @@ class Acoustic(Wrapper):
 						x_win = x_win * win
 						Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
 					Sxx[:, idwin] *= scale_psd
-				print(Sxx)
+
 				if self.data_normalization == "instrument":
 					Sxx = 10 * np.log10((Sxx / (1e-12)) + (1e-20))
 		
@@ -235,7 +235,7 @@ class Acoustic(Wrapper):
 					if self.spectro_normalization == "spectrum":
 						Sxx *= self.params['window_size'] / 2  # value around 0dB
 						Sxx = 10 * np.log10(Sxx + (1e-20))
-				print(Sxx)
+
 				spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
 				del sig, Sxx
 				gc.collect()
