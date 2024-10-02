@@ -221,7 +221,7 @@ class Acoustic(Wrapper):
 						Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
 					Sxx[:, idwin] *= scale_psd
 
-				if self.data_normalization == "instrument":
+				"""if self.data_normalization == "instrument":
 					Sxx = 10 * np.log10((Sxx / (1e-12)) + (1e-20))
 		
 				if self.data_normalization == "zscore":
@@ -230,7 +230,7 @@ class Acoustic(Wrapper):
 						Sxx = 10 * np.log10(Sxx + (1e-20))
 					if self.spectro_normalization == "spectrum":
 						Sxx *= self.params['window_size'] / 2  # value around 0dB
-						Sxx = 10 * np.log10(Sxx + (1e-20))
+						Sxx = 10 * np.log10(Sxx + (1e-20))"""
 
 				spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
 				del sig, Sxx
