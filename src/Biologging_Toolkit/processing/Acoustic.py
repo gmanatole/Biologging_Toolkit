@@ -198,11 +198,7 @@ class Acoustic(Wrapper):
 			_time_diffs = time_diffs[indices == idx]
 			# Read signal at correct timestamp
 			for j in range(len(_time_diffs)):
-				'''sig, _ = sf.read(wav_file,
-					 start = int(_time_diffs[j] * self.samplerate),
-					 stop =  int((_time_diffs[j] + self.params['duration']) * self.samplerate),
-					 dtype = 'float32'
-					 )'''
+
 				sig = data[int(_time_diffs[j] * self.samplerate) : int((_time_diffs[j] + self.params['duration']) * self.samplerate)]
 				Sxx = np.zeros([Nfreqs, Nbwin])
 				#Compute the spectrogram for desired duration and with chosen window parameters
