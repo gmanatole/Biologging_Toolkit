@@ -47,7 +47,7 @@ class Depth(Wrapper):
 			sens = nc.Dataset(sens_path)
 			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_time_sens(sens.dephist_device_datetime_start)
 			self.sens_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start    #Create time array for sens data
-			self.M, self.A, self.P = sens['M'][:].data, sens['A'][:].data, sens['P'][:].data
+			self.P = sens['P'][:].data
 		elif data['P'] is not None and data['time'] is not None :
 			self.P =  data['P']
 			self.sens_time = data['time']
