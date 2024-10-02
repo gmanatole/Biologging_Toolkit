@@ -13,7 +13,7 @@ class Depth(Wrapper):
 			  sens_path, 
 			  raw_path, 
 			  threshold = 20,
-			  data = {'time': None, 'A' : None, 'M' : None, 'P' : None}
+			  data = {'time': None, 'P' : None}
 			  ) :
 	
 		"""
