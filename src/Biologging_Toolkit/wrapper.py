@@ -136,7 +136,7 @@ class Wrapper():
 			lon[:] = lon_data
 
 
-	def create_variable(self, var_name, var_data, time_data, overwrite=False, **kwargs):
+	def create_variable(self, var_name, var_data, var_time, overwrite=False, **kwargs):
 		"""
 		Create or update a variable in the dataset.
 		This method creates a new variable or updates an existing one with the provided data and metadata attributes.
@@ -163,11 +163,11 @@ class Wrapper():
 
 		# Create the dimension for time if not already present
 		if 'time' not in self.ds.dimensions:
-			time_data = np.arange(time_data[0], time_data[-1], self.dt)
-			self.ds.createDimension('time', len(time_data))
+			time_data = np.arange(var_time[0], var_time[-1], self.dt)
+			self.create_time(time_data)
 
 		#Interpolation to get same timestep as reference dataframe
-		interp = interp1d(time_data, var_data, bounds_error = False)
+		interp = interp1d(var_time, var_data, bounds_error = False)
 		var_data = interp(self.ds['time'][:].data)
 
 		# Create or update the variable
