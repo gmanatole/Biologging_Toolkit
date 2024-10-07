@@ -236,7 +236,7 @@ class Acoustic(Wrapper):
 				spectro.append(np.mean(Sxx, axis = 1))
 
 				if len(spectro) == 10000:
-					np.save(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
+					np.savez(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
 						time= self.ds['time'][batch*10000 : (batch+1)*10000],
 						spectro = spectro,
 						freq = freqs)
@@ -244,7 +244,7 @@ class Acoustic(Wrapper):
 					batch += 1
 			
 		pbar.set_description('Normalizing and saving data')
-		np.save(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
+		np.savez(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
 			time= self.ds['time'][batch*10000 : (batch+1)*10000],
 			spectro = spectro,
 			freq = freqs)	
