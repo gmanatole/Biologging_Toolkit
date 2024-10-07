@@ -223,7 +223,7 @@ class Acoustic(Wrapper):
 						
 				spectro.append(np.mean(Sxx, axis = 1))
 
-				if len(spectro) == 10000:
+				if len(spectro) == 200000:
 					spectro = np.array(spectro)
 					if self.data_normalization == "instrument":
 						spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
@@ -235,7 +235,7 @@ class Acoustic(Wrapper):
 							spectro *= self.params['window_size'] / 2  # value around 0dB
 							spectro = 10 * np.log10(spectro + (1e-20))
 					np.savez(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
-						time= self.ds['time'][batch*10000 : (batch+1)*10000],
+						time= self.ds['time'][batch*200000 : (batch+1)*200000],
 						spectro = spectro,
 						freq = freqs)
 					spectro = []
@@ -253,7 +253,7 @@ class Acoustic(Wrapper):
 				spectro *= self.params['window_size'] / 2  # value around 0dB
 				spectro = 10 * np.log10(spectro + (1e-20))
 		np.savez(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
-			time= self.ds['time'][batch*10000 : (batch+1)*10000],
+			time= self.ds['time'][batch*200000 : ],
 			spectro = spectro,
 			freq = freqs)	
 		return spectro, freqs
