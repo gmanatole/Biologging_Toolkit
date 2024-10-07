@@ -97,10 +97,19 @@ class LoadData(utils.data.Dataset) :
 	def __getitem__(self, idx):
 		mask = self.dives == idx
 		label = self.label[mask][-1]
-		_data = np.load(self.fns[mask][0])
-		pos = np.searchsorted(_data['time'], self.ds['time'][mask].data)
-		spectro = _data['spectro'][pos]
-		spectro = torch.Tensor(spectro)
+		
+		if len(np.unique(self.fns[mask]) == 1):
+			_data = np.load(self.fns[mask][0])
+			pos = np.searchsorted(_data['time'], self.ds['time'][mask].data)
+			spectro = _data['spectro'][pos]
+			spectro = torch.Tensor(spectro)
+		else :
+			spectro = []
+			for fn in self.fns[mask] :
+				_data = np.load(fn)
+				pos = np.unique(np.searchsorted(_data['time'], self.ds['time'][mask].data))
+				spectro.extend(_data['spectro'][pos])
+			spectro = torch.Tensor(spectro)
 		
 		if len(spectro) == self.seq_length:
 			return spectro, torch.tensor(label, dtype=torch.float)
