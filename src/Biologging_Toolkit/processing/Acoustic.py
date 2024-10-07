@@ -193,9 +193,8 @@ class Acoustic(Wrapper):
 			pbar.set_description(f"Computing spectral power for file : {wav_file.split('/')[-1]}")
 			
 			# Fetch data corresponding to one wav file
-			_data, _ = sf.read(wav_file, dtype = 'float32')
-			data = self.normalize(_data)
-			del _data
+			data, _ = sf.read(wav_file, dtype = 'float32')
+			data = self.normalize(data)
 			_time_diffs = time_diffs[indices == idx]
 			# Read signal at correct timestamp
 			for j in range(len(_time_diffs)):
@@ -221,21 +220,19 @@ class Acoustic(Wrapper):
 						x_win = x_win * win
 						Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
 					Sxx[:, idwin] *= scale_psd
-					
-				if self.data_normalization == "instrument":
-					Sxx = 10 * np.log10((Sxx / (1e-12)) + (1e-20))
-		
-				if self.data_normalization == "zscore":
-					if self.spectro_normalization == "density":
-						Sxx *= self.samplerate / 2  # value around 0dB
-						Sxx = 10 * np.log10(Sxx + (1e-20))
-					if self.spectro_normalization == "spectrum":
-						Sxx *= self.params['window_size'] / 2  # value around 0dB
-						Sxx = 10 * np.log10(Sxx + (1e-20))
 						
 				spectro.append(np.mean(Sxx, axis = 1))
 
 				if len(spectro) == 10000:
+					if self.data_normalization == "instrument":
+						spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
+					if self.data_normalization == "zscore":
+						if self.spectro_normalization == "density":
+							spectro *= self.samplerate / 2  # value around 0dB
+							spectro = 10 * np.log10(spectro + (1e-20))
+						if self.spectro_normalization == "spectrum":
+							spectro *= self.params['window_size'] / 2  # value around 0dB
+							spectro = 10 * np.log10(spectro + (1e-20))
 					np.savez(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
 						time= self.ds['time'][batch*10000 : (batch+1)*10000],
 						spectro = spectro,
@@ -244,6 +241,15 @@ class Acoustic(Wrapper):
 					batch += 1
 			
 		pbar.set_description('Normalizing and saving data')
+		if self.data_normalization == "instrument":
+			spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
+		if self.data_normalization == "zscore":
+			if self.spectro_normalization == "density":
+				spectro *= self.samplerate / 2  # value around 0dB
+				spectro = 10 * np.log10(spectro + (1e-20))
+			if self.spectro_normalization == "spectrum":
+				spectro *= self.params['window_size'] / 2  # value around 0dB
+				spectro = 10 * np.log10(spectro + (1e-20))
 		np.savez(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
 			time= self.ds['time'][batch*10000 : (batch+1)*10000],
 			spectro = spectro,
