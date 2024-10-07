@@ -224,6 +224,7 @@ class Acoustic(Wrapper):
 				spectro.append(np.mean(Sxx, axis = 1))
 
 				if len(spectro) == 10000:
+					spectro = np.array(spectro)
 					if self.data_normalization == "instrument":
 						spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
 					if self.data_normalization == "zscore":
@@ -241,6 +242,7 @@ class Acoustic(Wrapper):
 					batch += 1
 			
 		pbar.set_description('Normalizing and saving data')
+		spectro = np.array(spectro)
 		if self.data_normalization == "instrument":
 			spectro = 10 * np.log10((spectro / (1e-12)) + (1e-20))
 		if self.data_normalization == "zscore":
