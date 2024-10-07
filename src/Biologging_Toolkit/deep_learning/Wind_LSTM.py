@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from tqdm import tqdm
-from torch import utils
+from torch import utils, nn
 import time
 import netCDF4 as nc
 
@@ -23,8 +23,8 @@ class WindLSTM() :
 
 		self.model = 'RNN'
 		self.dataloader = LoadData(self.acoustic_time, self.variable, self.dives, self.depth)
-		self.criterion = ''
-		self.optimizer = 'Adam'
+		self.criterion = nn.MSELoss()
+		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001, weight_decay = 0.000)
 	
 	def train(self, model, dataloader, test_loader, criterion, optimizer, num_epochs, accuracy):
 	
