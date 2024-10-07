@@ -164,7 +164,11 @@ class Wrapper():
 		# Create the dimension for time if not already present
 		if 'time' not in self.ds.dimensions:
 			time_data = np.arange(var_time[0], var_time[-1], self.dt)
-			self.create_time(time_data)
+			time = self.ds.createVariable('time', np.float64, ('time',))
+			time.units = 'seconds since 1970-01-01 00:00:00 UTC'
+			time.long_name = 'POSIX timestamp'
+			time.calendar = 'standard'
+			time[:] = time_data
 
 		#Interpolation to get same timestep as reference dataframe
 		interp = interp1d(var_time, var_data, bounds_error = False)
@@ -184,13 +188,6 @@ class Wrapper():
 		else:
 			raise ValueError(f"Variable '{var_name}' already exists in the dataset. Use `overwrite=True` to replace it.")
 
-		# Assign time data to the 'time' variable if not already present
-		if 'time' not in self.ds.variables:
-			time = self.ds.createVariable('time', np.float64, ('time',))
-			time.units = 'seconds since 1970-01-01 00:00:00 UTC'
-			time.long_name = 'POSIX timestamp'
-			time.calendar = 'standard'
-			time[:] = time_data
 
 
 	def remove_variable(self, var_name: str):
