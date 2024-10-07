@@ -182,7 +182,8 @@ class Acoustic(Wrapper):
 		matches = (self.ds['time'][:].data[:, None] >= self.wav_start_time) & (self.ds['time'][:].data[:, None] <= self.wav_end_time)
 		indices = np.where(matches.any(axis=1), matches.argmax(axis=1), -1)
 		time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.wav_start_time[indices], np.nan)
-		spectro = np.full([np.size(freqs), len(indices)], np.nan, dtype = np.float32)
+		spectro = []
+		batch = 0
 		
 		pbar = tqdm(total = len(self.wav_start_time), leave = True, position = 0)
 	
@@ -232,12 +233,15 @@ class Acoustic(Wrapper):
 						Sxx *= self.params['window_size'] / 2  # value around 0dB
 						Sxx = 10 * np.log10(Sxx + (1e-20))
 						
-				spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
-				del sig, Sxx
-				gc.collect()
-					
-			del data
-			gc.collect()
+				spectro.append(np.mean(Sxx, axis = 1))
+
+				if len(spectro) == 10000:
+					np.save(os.path.join(self.path, f'acoustic_{batch:03}.npz'),
+						'time'= self.ds['time'][batch*10000 : (batch+1)*10000],
+						'spectro' = spectro,
+						'freq' = freqs)
+					spectro = []
+					batch += 1
 			
 		pbar.set_description('Normalizing and saving data')
 				
@@ -374,3 +378,102 @@ def process_wav_file(wav_file, time_diffs, samplerate, params, freqs, Nbwin, Nof
     gc.collect()
     
     return file_spectro
+
+'''def compute_noise_level(self): 
+	"""
+	Computes the noise level of the provided acoustic data using windowed Fourier transforms.
+	Parameters
+	----------
+	data: array-like
+		The raw acoustic data for which the noise level is to be computed.
+	Returns
+	-------
+	log_spectro: The computed and normalized spectrogram, representing the noise level in the data.
+	"""
+
+	# Create scales wrt to user parameters
+	win = np.hamming(self.params['window_size'])
+	if self.params['nfft'] < (self.params['window_size']):
+	    if self.spectro_normalization == "density":
+		scale_psd = 1.0
+	    if self.spectro_normalization == "spectrum":
+		scale_psd = 1.0
+	else:
+	    if self.spectro_normalization == "density":
+		scale_psd = 2.0 / (((win * win).sum()) * self.samplerate)
+	    if self.spectro_normalization == "spectrum":
+		scale_psd = 2.0 / (win.sum() ** 2)
+
+	# Get FFT parameters
+	freqs = np.fft.rfftfreq(self.params['nfft'], d=1 / self.samplerate)
+	Noverlap = int(self.params['window_size'] * self.params['overlap'] / 100)
+	Nbech = self.params['duration'] * self.samplerate
+	Noffset = self.params['window_size'] - Noverlap
+	Nbwin = int((Nbech - self.params['window_size']) / Noffset)
+	Nfreqs = np.size(freqs)
+	
+	# Fetch wav starting times wrt to netCDF structure
+	matches = (self.ds['time'][:].data[:, None] >= self.wav_start_time) & (self.ds['time'][:].data[:, None] <= self.wav_end_time)
+	indices = np.where(matches.any(axis=1), matches.argmax(axis=1), -1)
+	time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.wav_start_time[indices], np.nan)
+	spectro = np.full([np.size(freqs), len(indices)], np.nan, dtype = np.float32)
+	
+	pbar = tqdm(total = len(self.wav_start_time), leave = True, position = 0)
+
+	for idx, wav_file in enumerate(self.wav_fns) :
+
+		pbar.update(1)
+		pbar.set_description(f"Computing spectral power for file : {wav_file.split('/')[-1]}")
+		
+		# Fetch data corresponding to one wav file
+		_data, _ = sf.read(wav_file, dtype = 'float32')
+		data = self.normalize(_data)
+		del _data
+		_time_diffs = time_diffs[indices == idx]
+		# Read signal at correct timestamp
+		for j in range(len(_time_diffs)):
+
+			sig = data[int(_time_diffs[j] * self.samplerate) : int((_time_diffs[j] + self.params['duration']) * self.samplerate)]
+			Sxx = np.zeros([Nfreqs, Nbwin])
+			#Compute the spectrogram for desired duration and with chosen window parameters
+			for idwin in range(Nbwin):
+				if self.params['nfft'] < (self.params['window_size']):
+					x_win = sig[idwin * Noffset : idwin * Noffset + self.params['window_size']]
+					_, Sxx[:, idwin] = sg.welch(
+						x_win,
+						fs=self.samplerate,
+						window="hamming",
+						nperseg=int(self.params['nfft']),
+						noverlap=int(self.params['nfft'] / 2),
+						scaling=self.spectro_normalization,
+						)
+				else:
+					x_win = sig[idwin * Noffset : idwin * Noffset + self.params['window_size']]
+					if len(x_win) < self.params['window_size'] :
+						x_win = np.pad(x_win, (0, self.params['window_size']-len(x_win)), 'constant', constant_values=0)
+					x_win = x_win * win
+					Sxx[:, idwin] = np.abs(np.fft.rfft(x_win, n=self.params['nfft'])) ** 2
+				Sxx[:, idwin] *= scale_psd
+				
+			if self.data_normalization == "instrument":
+				Sxx = 10 * np.log10((Sxx / (1e-12)) + (1e-20))
+	
+			if self.data_normalization == "zscore":
+				if self.spectro_normalization == "density":
+					Sxx *= self.samplerate / 2  # value around 0dB
+					Sxx = 10 * np.log10(Sxx + (1e-20))
+				if self.spectro_normalization == "spectrum":
+					Sxx *= self.params['window_size'] / 2  # value around 0dB
+					Sxx = 10 * np.log10(Sxx + (1e-20))
+					
+			spectro[:, np.argmax(indices == idx) + j] = np.mean(Sxx, axis = 1)			
+			del sig, Sxx
+			gc.collect()
+				
+		del data
+		gc.collect()
+		
+	pbar.set_description('Normalizing and saving data')
+			
+	return spectro, freqs
+'''
