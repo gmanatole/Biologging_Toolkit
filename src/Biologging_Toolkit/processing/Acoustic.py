@@ -182,7 +182,7 @@ class Acoustic(Wrapper):
 		matches = (self.ds['time'][:].data[:, None] >= self.wav_start_time) & (self.ds['time'][:].data[:, None] <= self.wav_end_time)
 		indices = np.where(matches.any(axis=1), matches.argmax(axis=1), -1)
 		time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.wav_start_time[indices], np.nan)
-		spectro = np.full([np.size(freqs), len(indices)], np.nan)
+		spectro = np.full([np.size(freqs), len(indices)], np.nan, dtype = np.float32)
 		
 		pbar = tqdm(total = len(self.wav_start_time), leave = True, position = 0)
 	
