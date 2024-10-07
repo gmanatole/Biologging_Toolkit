@@ -73,7 +73,7 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 		'data_format': 'netcdf',
 		}
 
-	c.retrieve(dataset, request).download(filename)
+	c.retrieve(dataset, request, filename)
 
 
 def return_cdsv2(filename, key, variables, years, months, days, hours, area):
