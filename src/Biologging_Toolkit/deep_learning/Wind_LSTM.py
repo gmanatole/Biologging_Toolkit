@@ -4,6 +4,7 @@ from tqdm import tqdm
 from torch import utils, nn
 import time
 import netCDF4 as nc
+from Biologging_Toolkit.utils.acoustic_utils import *
 
 class WindLSTM() :
 	
@@ -17,15 +18,16 @@ class WindLSTM() :
 		self.depid = depid
 		self.acoustic_path = acoustic_path
 		self.ds = nc.Dataset(path)
+		self.fns = find_npz_for_time(self.ds['time'][:], self.acoustic_path)
 		self.dives = self.ds['dives'][:].data
 		self.depth = self.ds['depth'][:].data
 		self.variable = variable
 
 		self.model = 'RNN'
-		self.dataloader = LoadData(self.acoustic_time, self.variable, self.dives, self.depth)
+		self.dataloader = LoadData(self.variable, self.fns, self.dives, self.depth)
 		self.criterion = nn.MSELoss()
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001, weight_decay = 0.000)
-	
+
 	def train(self, model, dataloader, test_loader, criterion, optimizer, num_epochs, accuracy):
 	
 		for epoch in range(num_epochs):
@@ -78,8 +80,8 @@ class LoadData(utils.data.DataLoader) :
 	
 	seq_length = 500
 	
-	def __init__(self, acoustic, variable, dives, depth):
-		self.acoustic = acoustic
+	def __init__(self, variable, files, dives, depth):
+		self.files = files
 		self.variable = variable 
 		self.dives = dives
 		self.depth = depth

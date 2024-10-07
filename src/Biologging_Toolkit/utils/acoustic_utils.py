@@ -1,5 +1,6 @@
 import numpy as np
-
+from glob import glob
+import os 
 
 def db_mean(levels, axis=None):
 	"""
@@ -33,5 +34,32 @@ def find_corresponding_file(timestamp, ts):
 	return np.array(fns), np.array(start_time)
 
 
+def find_npz_for_time(ref_times, npz_path):
+	"""
+    Create an array mapping each time in ds_times to the corresponding npz file.
+    
+    Parameters:
+        ds_times (np.ndarray): Array of epoch times from self.ds['time'].
+        npz_files (list): List of (filename, time_array) tuples from npz files.
+    
+    Returns:
+        np.ndarray: Array of the same shape as ds_times, containing the npz filename/index.
+	"""
+	npz_files = glob.glob(os.path.join(npz_path, 'acoustic*npz'))
+    # Initialize an array to store the file index or name for each time in ds_times
+	output_array = np.empty(ref_times.shape, dtype=object)  # Store filename/index here
+    
+    # Prepare npz time ranges
+	time_ranges = [(npz_file[0], npz_file[1][0], npz_file[1][-1]) for npz_file in npz_files]
+    
+	# For each time in ds_times, find the corresponding npz file
+	for i, time in np.ndenumerate(ref_times):
+		# Perform a binary search over the time_ranges to find the correct npz file
+		for npz_file, start_time, end_time in time_ranges:
+			if start_time <= time <= end_time:
+				output_array[i] = npz_file
+				break
+                
+	return output_array
 
 
