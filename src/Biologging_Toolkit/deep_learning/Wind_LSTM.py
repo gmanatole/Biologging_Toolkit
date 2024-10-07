@@ -8,17 +8,21 @@ import netCDF4 as nc
 class WindLSTM() :
 	
 	def __init__(self,
-			  depid = None,
-			  path = None,
-			  acoustic_path = None,
+			  depid : str = None,
+			  path : str = None,
+			  acoustic_path : str = None,
+			  variable : str = 'era'
 			  ) :
 		
 		self.depid = depid
-		self.acoustic = nc.Dataset(acoustic_path)
+		self.acoustic_path = acoustic_path
 		self.ds = nc.Dataset(path)
-		
+		self.dives = self.ds['dives'][:].data
+		self.depth = self.ds['depth'][:].data
+		self.variable = variable
+
 		self.model = 'RNN'
-		self.dataloader = LoadData()
+		self.dataloader = LoadData(self.acoustic_time, self.variable, self.dives, self.depth)
 		self.criterion = ''
 		self.optimizer = 'Adam'
 	
@@ -70,7 +74,7 @@ class WindLSTM() :
 		print('TIME = ', total_time, t3-t2)
 
 
-class LoadData(utils.data.Dataloader) :
+class LoadData(utils.data.DataLoader) :
 	
 	seq_length = 500
 	
