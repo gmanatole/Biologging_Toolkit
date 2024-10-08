@@ -76,16 +76,15 @@ class Wrapper():
 		if overwrite :
 			if 'time' in self.ds.variables:
 				self.remove_variable('time')
-	
-		if time_data is not None :	
-			if resample :
-				time_data = np.arange(time_data[0], time_data[-1], self.dt)
 
 		if time_path :
 			ds = nc.Dataset(time_path)
 			length = len(ds['P'][:])
 			ds_sr = ds['P'].sampling_rate
 			time_data = get_start_time_sens(ds.dephist_device_datetime_start) + np.arange(0, length/ds_sr, np.round(1/ds_sr,2))
+
+		if resample :
+			time_data = np.arange(time_data[0], time_data[-1], self.dt)
 
 		if 'time' not in self.ds.variables:
 			time_dim = self.ds.createDimension('time', len(time_data)) # unlimited axis (can be appended to)
