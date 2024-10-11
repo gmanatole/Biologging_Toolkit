@@ -4,7 +4,7 @@ from scipy.signal import find_peaks
 import netCDF4 as nc
 from Biologging_Toolkit.utils.format_utils import *
 
-class Depth(Wrapper): 
+class Dives(Wrapper): 
 
 	def __init__(self, 
 			  depid, 
@@ -95,3 +95,39 @@ class Depth(Wrapper):
 		for peak in peaks :
 			dives[peak :] += 1
 		self.dives = dives
+
+	@staticmethod
+	def get_bottom_dives(depth, *, prec = 0.10):
+		bottom, properties = find_peaks(depth, height = 200)
+		for peak in bottom :
+			i,j = 0,0
+			while (peak+j+2 <= len(depth)) and ((abs(depth[peak] - depth[peak-i]) <= prec*depth[peak]) or (abs(depth[peak] - depth[peak+j]) <= prec*depth[peak])) :
+				if (abs(depth[peak] - depth[peak-i]) <= prec*depth[peak]) or (abs(depth[peak] - depth[peak-i-1]) <= prec*depth[peak]):
+					bottom = np.append(bottom, peak-i)
+					i+=1
+				if (abs(depth[peak] - depth[peak+j]) <= prec*depth[peak]) or (abs(depth[peak] - depth[peak+j+1]) <= prec*depth[peak]):
+					bottom = np.append(bottom, peak+j)
+					j+=1
+		return np.unique(bottom)
+	
+	@staticmethod
+	def get_dive_direction(depth, *, remove_bottom = True):
+		'''
+		Parameters
+		----------
+		depth : array containing depth data
+		remove_bottom : Whether to remove every dive's bottom time, optional. Default to True.
+		
+		Returns
+		-------
+		Two arrays containing time and depth when the hydrophone is diving down
+		Two arrays containing time and depth data when hydrophone goes back towards the surface
+		One mask array where False values are for upward profiles and True values are for downward profiles
+		'''
+		mask, mask_up, mask_down = np.full((3, len(depth)), True)
+		if remove_bottom :
+			mask[Dives.get_bottom_dives(depth)] = False
+		grad = np.gradient(depth)
+		mask_up[grad > 0] = False
+		mask_down[grad < 0] = False
+		return mask_up & mask, mask_down & mask
