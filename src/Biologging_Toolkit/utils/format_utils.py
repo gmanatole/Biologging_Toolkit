@@ -144,9 +144,14 @@ def from_timestamp(date: datetime) -> str:
     return datetime.strftime(date, "%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 	
 	
-	
-	
-	
+def resample_boolean_array(arr, N):
+    # Create an array of evenly spaced indices over the new size N
+    original_indices = np.linspace(0, len(arr) - 1, N)
+    # Round the indices to nearest integers and cast to integers
+    resampled_indices = np.round(original_indices).astype(int)
+    # Use these indices to pick elements from the original array
+    resampled_arr = [arr[i] for i in resampled_indices]
+    return resampled_arr
 	
 	
 	
