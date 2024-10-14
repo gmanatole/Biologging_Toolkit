@@ -2,16 +2,18 @@ import numpy as np
 from Biologging_Toolkit.wrapper import Wrapper
 from scipy.signal import find_peaks
 import netCDF4 as nc
+import os
+import pandas as pd
 from Biologging_Toolkit.utils.format_utils import *
 
 class Dives(Wrapper): 
 
 	def __init__(self, 
-			  depid, 
+			  depid : str, 
 			  *, 
-			  path, 
-			  sens_path, 
-			  raw_path, 
+			  path : str, 
+			  sens_path : str = None, 
+			  raw_path : str = None, 
 			  threshold = 20,
 			  data = {'time': None, 'P' : None}
 			  ) :
@@ -53,6 +55,13 @@ class Dives(Wrapper):
 			self.sens_time = data['time']
 			self.samplerate = self.inertial_time[1]-self.inertial_time[0]
 		
+		dive_path = os.path.join(path, f'{depid}_dive.csv')
+		try :
+			self.dive_ds = pd.read_csv(dive_path)
+		except FileNotFoundError:
+			self.dive_ds = pd.DataFrame([])
+			self.dive_ds.to_csv(dive_path, index = None)
+		
 	def __str__(self):
 		return "This class identifies surfacing periods and increments dives."
 
@@ -75,6 +84,17 @@ class Dives(Wrapper):
 			dives.measure = "Increments dives each time the animal goes below threshold"
 			dives[:] = self.dives
 			
+		self.dive_ds['depth'] = self.dives
+		begin_time, end_time = [], []
+		ref_time = self['time'][:].data
+		for dive in self.dives : 
+			begin_time.append(np.min(ref_time[self.dives == dive]))
+			end_time.append(np.max(ref_time[self.dives == dive]))
+		self.dive_ds['begin_time'] = begin_time
+		self.dive_ds['end_time'] = end_time
+		self.dive_ds.to_csv(self.dive_path, index = None)
+		
+		
 	def get_depth(self):
 		self.create_variable('depth', self.P, self.sens_time)
 
