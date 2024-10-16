@@ -55,12 +55,12 @@ class Dives(Wrapper):
 			self.sens_time = data['time']
 			self.samplerate = self.inertial_time[1]-self.inertial_time[0]
 		
-		dive_path = os.path.join(path, f'{depid}_dive.csv')
+		self.dive_path = os.path.join(path, f'{depid}_dive.csv')
 		try :
-			self.dive_ds = pd.read_csv(dive_path)
+			self.dive_ds = pd.read_csv(self.dive_path)
 		except FileNotFoundError:
 			self.dive_ds = pd.DataFrame([])
-			self.dive_ds.to_csv(dive_path, index = None)
+			self.dive_ds.to_csv(self.dive_path, index = None)
 		
 	def __str__(self):
 		return "This class identifies surfacing periods and increments dives."
@@ -84,10 +84,10 @@ class Dives(Wrapper):
 			dives.measure = "Increments dives each time the animal goes below threshold"
 			dives[:] = self.dives
 			
-		self.dive_ds['depth'] = self.dives
+		self.dive_ds['depth'] = np.unique(self.dives)
 		begin_time, end_time = [], []
-		ref_time = self['time'][:].data
-		for dive in self.dives : 
+		ref_time = self.ds['time'][:].data
+		for dive in np.unique(self.dives) : 
 			begin_time.append(np.min(ref_time[self.dives == dive]))
 			end_time.append(np.max(ref_time[self.dives == dive]))
 		self.dive_ds['begin_time'] = begin_time
