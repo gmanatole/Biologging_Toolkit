@@ -58,7 +58,7 @@ class Dives(Wrapper):
 		self.dive_path = os.path.join(path, f'{depid}_dive.csv')
 		try :
 			self.dive_ds = pd.read_csv(self.dive_path)
-		except FileNotFoundError:
+		except (FileNotFoundError, pd.errors.EmptyDataError):
 			self.dive_ds = pd.DataFrame([])
 			self.dive_ds.to_csv(self.dive_path, index = None)
 		
