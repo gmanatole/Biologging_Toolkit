@@ -49,11 +49,11 @@ class MixedLayerDepth(Dives) :
 	
 	@staticmethod
 	def profile_check(depth, profile, sr) :
-		if len(profile) >= 3 * 60 / sr :
+		if len(profile[depth > 10]) >= 3 * 60 / sr :
 			indices = np.argsort(depth)
 			depth = depth[indices]
 			profile = profile[indices]
-			return depth[depth > 5], profile[depth > 5]
+			return depth[depth > 10], profile[depth > 10]
 		else :
 			return [], []
 		
