@@ -80,7 +80,7 @@ class WindLSTM() :
 
 class LoadData(utils.data.Dataset) :
 	
-	seq_length = 500
+	seq_length = 1500
 	
 	def __init__(self, variable, ds, fns):
 		self.fns = fns
@@ -96,7 +96,7 @@ class LoadData(utils.data.Dataset) :
 		return len(np.unique(self.dives))
 	
 	def __getitem__(self, idx):
-		mask = self.dives == idx
+		mask = (self.dives == idx) & (self.ds['depth'][:].data > 10) 
 		label = self.label[mask][-1]
 		
 		if len(np.unique(self.fns[mask]) == 1):
