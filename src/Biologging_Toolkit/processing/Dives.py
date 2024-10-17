@@ -1,6 +1,7 @@
 import numpy as np
 from Biologging_Toolkit.wrapper import Wrapper
 from scipy.signal import find_peaks
+from scipy.interpolate import interp1d
 import netCDF4 as nc
 import os
 import pandas as pd
@@ -14,7 +15,7 @@ class Dives(Wrapper):
 			  path : str, 
 			  sens_path : str = None, 
 			  raw_path : str = None, 
-			  threshold = 20,
+			  threshold = 10,
 			  data = {'time': None, 'P' : None}
 			  ) :
 	
@@ -98,9 +99,10 @@ class Dives(Wrapper):
 	def get_depth(self):
 		self.create_variable('depth', self.P, self.sens_time)
 
-	def dive_count(self) :
+	def dive_centered(self) :
 		"""
 		Counts and increments dives each time the depth gets above specified threshold
+		Dives are symmetrical meaning that there is surfacing time on both sides of the dive
 		"""
 		
 		depth = self.ds['depth'][:]
@@ -114,6 +116,27 @@ class Dives(Wrapper):
 		dives = np.zeros(len(depth))
 		for peak in peaks :
 			dives[peak :] += 1
+		self.dives_centered = dives
+	
+	def dive_count(self):
+		"""
+		Counts and increments dives each time the depth gets above specified threshold
+		Dives are made up of an entire surfacing time following the dive until depth gets above threshold again.
+		"""
+		depth = self.ds['depth'][:]
+		
+		#Remove nan values which interfere with dive count
+		time_depth = self.ds['time'][:].data
+		nan_mask = np.isnan(depth)
+		depth[nan_mask] = interp1d(time_depth[~nan_mask], depth[~nan_mask], bounds_error = False)(time_depth[nan_mask])
+		
+		depth[np.isnan(depth)] = self.threshold + 1
+		dive_mask = (depth >= self.threshold).astype(int)
+		# Detect the start of each dive (right after surfacing)
+		dive_starts = np.where(np.diff(dive_mask) == 1)[0] + 1
+		dives = np.zeros(len(depth))
+		for start in dive_starts:
+			dives[start:] += 1
 		self.dives = dives
 
 	@staticmethod
