@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from torch import utils, nn
+from torch.autograd import Variable
 import time
 import netCDF4 as nc
 from Biologging_Toolkit.utils.acoustic_utils import *
@@ -28,7 +29,7 @@ class WindLSTM() :
 
 		self.learning_rate = learning_rate
 		self.weight_decay = weight_decay
-		self.model = RNNModel(1, 512, 1, 1)
+		self.model = RNNModel(513, 512, 1, 1)
 		self.dataloader = utils.data.DataLoader(LoadData(self.variable, self.ds, self.fns))
 		if criterion == 'MSE':
 			self.criterion = nn.MSELoss()
