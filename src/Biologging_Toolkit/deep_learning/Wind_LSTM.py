@@ -99,16 +99,17 @@ class LoadData(utils.data.Dataset) :
 		mask = (self.dives == idx) & (self.ds['depth'][:].data > 10) 
 		label = self.label[mask][-1]
 		
-		if len(np.unique(self.fns[mask]) == 1):
+		if len(np.unique(self.fns[mask])) == 1:
 			_data = np.load(self.fns[mask][0])
 			pos = np.searchsorted(_data['time'], self.ds['time'][mask].data)
 			spectro = _data['spectro'][pos]
 			spectro = torch.Tensor(spectro)
 		else :
 			spectro = []
-			for fn in self.fns[mask] :
+			for fn in np.unique(self.fns[mask]) :
+				_mask = mask & (self.fns == fn)
 				_data = np.load(fn)
-				pos = np.unique(np.searchsorted(_data['time'], self.ds['time'][mask].data))
+				pos = np.searchsorted(_data['time'], self.ds['time'][_mask].data)
 				spectro.extend(_data['spectro'][pos])
 			spectro = torch.Tensor(spectro)
 		
