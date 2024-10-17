@@ -5,12 +5,12 @@ from scipy.signal import welch, find_peaks, butter, filtfilt, sosfilt
 import netCDF4 as nc
 from datetime import datetime, timezone
 import soundfile as sf
-from Biologging_Toolkit.wrapper import Wrapper
+from Biologging_Toolkit.processing.Dives import Dives
 from Biologging_Toolkit.utils.format_utils import *
 
 
 
-class Waves(Wrapper) :
+class Waves(Dives) :
 	'''
 	(Hashimoto and Konbune, 1988)
 	Earle (1996, p. 12) 
@@ -29,7 +29,7 @@ class Waves(Wrapper) :
 		
 		super().__init__(
 			depid,
-			path
+			path = path
         )
 		
 		if sens_path :
@@ -60,9 +60,10 @@ class Waves(Wrapper) :
 		raw_path : str
 			Path to the directory containing the raw sensor data files (swv).
 		"""
+		elevation_angle, time_angle = self.ds['elevation_angle'][:].data, self.ds['time'][:].data
 		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
 		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
-		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))]
+		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))].flatten()
 		xml_start_time = get_start_date_xml(xml_fns)
 		idx_names = np.array(get_xml_columns(xml_fns[0], cal='acc', qualifier2='d4'))
 		if samplerate == 50 :
@@ -85,8 +86,11 @@ class Waves(Wrapper) :
 			A_surf = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
 			A_surf = (A_surf * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
 			
-			A_filtered = sosfilt(params, A_surf[:,0])
+			ea = np.nanmean(elevation_angle[(time_angle > surface_time[0]) & (time_angle < surface_time[-1])])
+			A_filtered = sosfilt(params, A_surf[:,0]*np.sin(ea) + A_surf[:,2]*np.cos(ea))
 
+			#A_filtered = sosfilt(params, A_surf[:,0])
+			
 			# Find frequency by identifying peaks in Ax (ie inversion in direction)
 			Ax_peaks, _ = find_peaks(A_filtered, prominence = 1.5, distance = 200)
 			_med_period = np.nanmedian(np.diff(Ax_peaks))/samplerate
@@ -129,9 +133,7 @@ class Waves(Wrapper) :
 		return surface, np.array(surf)
 	
 	
-
-
-
+		
 '''
 @staticmethod
 def compute_psd(acc_data, sampling_rate):
