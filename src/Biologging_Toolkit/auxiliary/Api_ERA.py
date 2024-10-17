@@ -6,6 +6,8 @@ from tqdm import tqdm
 from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
+from datetime import datetime, timedelta
+from scipy.interpolate import RegularGridInterpolator
 
 #get_epoch_time = lambda x : calendar.timegm(x.timetuple()) if isinstance(x, datetime) else x
 
@@ -111,3 +113,32 @@ def return_cdsv2(filename, key, variables, years, months, days, hours, area):
 	    filename,
 	    )
 	r.download(filename)
+
+
+
+def join_era(depid, path, era_path, value, **kwargs):
+	default = {'units':'unknown', 'long_name':value}
+	attrs = {**default, **kwargs}
+	era_ds = Dataset(era_path)
+	time_era = np.array([(datetime(1900,1,1,0,0,0) + timedelta(hours = int(hour))).timestamp() for hour in era_ds['time'][:].data])
+	interp_era = RegularGridInterpolator((time_era, era_ds['latitude'][:].data, era_ds['longitude'][:].data), era_ds[value][:].data, bounds_error = False)
+	
+	try :
+		ds = Dataset(os.path.join(path, depid + '_sens.nc'), mode = 'a')
+		var_data = interp_era((ds['time'][:].data, ds['lat'][:].data, ds['lon'][:].data))
+		var = ds.createVariable(value, np.float32, ('time',))
+		var_attrs = attrs
+		var_attrs.update(kwargs)
+		for attr_name, attr_value in var_attrs.items():
+			setattr(var, attr_name, attr_value)
+		var[:] = var_data
+		ds.close()
+	except (FileNotFoundError, RuntimeError):
+		print('No reference NetCDF file found')
+	
+	try :
+		dive_ds = pd.read_csv(os.path.join(path, depid + '_dive.csv'))
+		dive_ds[value] = interp_era((dive_ds.time, dive_ds.latitude, dive_ds.longitude))
+		dive_ds.to_csv(os.path.join(path, depid + '_dive.csv'), index = None)
+	except (FileNotFoundError, KeyError):
+		print('No dive dataframe found')
