@@ -73,7 +73,7 @@ class MixedLayerDepth(Dives) :
 				_depth, _temp = self.profile_check(_depth, _temp, self.ds.sampling_rate)
 				delta_k, std_k, X_k = [],[],[]
 				for k in range(len(_temp)):
-					delta_k.append(np.sqrt( 1/(k+1) * np.nansum([((_temp[i] - np.nanmean(_temp[:k+1]))**2) for i in range(k)])))
+					delta_k.append(np.sqrt( 1/(k+1) * np.nansum([((_temp[i] - np.nanmean(_temp[:k+1]))**2) for i in range(k+1)])))
 					std_k.append(np.nanmax(_temp[:k+1]) - np.nanmin(_temp[:k+1]))
 					X_k.append(delta_k[-1] / std_k[-1])
 				#If X_k contains only nan values, add nan
