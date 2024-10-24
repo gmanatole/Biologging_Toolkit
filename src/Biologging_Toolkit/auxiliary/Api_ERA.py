@@ -50,7 +50,7 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 
 	print('\nYour boundaries are : North {}°, South {}°, East {}°, West {}°'.format(area[0], area[2],
 			                                                         area[3], area[1]))
-	filename = filename + '.nc'
+	filename = filename + '.zip'
 
 	c = cdsapi.Client()
 
@@ -71,7 +71,7 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 		'day': days,
 		'time': hours,
 		'area' : area,
-		'download_format': 'unarchived',
+		'download_format': 'zip',
 		'data_format': 'netcdf',
 		}
 
