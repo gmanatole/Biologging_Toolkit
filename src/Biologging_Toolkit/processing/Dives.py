@@ -50,9 +50,9 @@ class Dives(Wrapper):
 			sens = nc.Dataset(sens_path)
 			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_time_sens(sens.dephist_device_datetime_start)
 			self.sens_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start    #Create time array for sens data
-			self.P = sens['P'][:].data
+			self.depth = sens['P'][:].data
 		elif data['P'] is not None and data['time'] is not None :
-			self.P =  data['P']
+			self.depth =  data['P']
 			self.sens_time = data['time']
 			self.samplerate = self.inertial_time[1]-self.inertial_time[0]
 		
@@ -62,6 +62,10 @@ class Dives(Wrapper):
 		except (FileNotFoundError, pd.errors.EmptyDataError):
 			self.dive_ds = pd.DataFrame([])
 			self.dive_ds.to_csv(self.dive_path, index = None)
+		
+		self.up = None
+		self.down = None
+		self.bottom = None
 		
 	def __str__(self):
 		return "This class identifies surfacing periods and increments dives."
@@ -97,8 +101,14 @@ class Dives(Wrapper):
 		
 		
 	def get_depth(self):
-		self.create_variable('depth', self.P, self.sens_time)
+		self.create_variable('depth', self.depth, self.sens_time)
 
+
+	def dive_profile(self) :
+		self.up, self.down = self.get_dive_direction(self.depth[:: 60 // self.ds.sampling_rate])
+		self.up, self.down = resample_boolean_array(self.up, len(self.depth)), resample_boolean_array(self.down, len(self.depth))
+		self.bottom = self.get_bottom_dives(self.depth[:: 60 // self.ds.sampling_rate])
+		
 	def dive_centered(self) :
 		"""
 		Counts and increments dives each time the depth gets above specified threshold
