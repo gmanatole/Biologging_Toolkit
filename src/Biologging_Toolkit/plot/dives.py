@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import netCDF4 as nc
 
-def run_dives(depid, path=None, cmap = 'temperature'):
+def run_dives(depid, path=None, cmap='temperature'):
     assert isinstance(depid, str), "Please specify an individual"
     ds_name = depid + '_sens'
     path = path if path else os.getcwd()
@@ -18,19 +18,17 @@ def run_dives(depid, path=None, cmap = 'temperature'):
 
     # List of columns to include in the checklist
     columns = list(ds.variables.keys()) + list(dive_ds.columns)
-
-    # Remove 'time' and 'depth' from selectable columns if they are present
     columns.remove('time')
     columns.remove('depth')
     time_data = ds['time'][:].data
     depth_data = ds['depth'][:].data
     data = ds[cmap][:].data
-	
+
     app.layout = html.Div([
         dcc.Checklist(
             id='column-selector',
             options=[{'label': col, 'value': col} for col in columns],
-            value=['era', 'rolling_average'],  # Default selected columns
+            value=['era', 'rolling_average'],
             labelStyle={'display': 'inline-block'}
         ),
         dcc.Graph(id='scatter-plot'),
@@ -49,26 +47,21 @@ def run_dives(depid, path=None, cmap = 'temperature'):
          Input('column-selector', 'value')]
     )
     def update_graph(time_range, selected_columns):
-        # Determine the downsampling step based on the time range
         total_points = len(time_data[(time_data >= time_range[0]) & (time_data <= time_range[1])])
-        max_points = 25000  # Set a maximum number of points to display
-
-        # Calculate step size to stay within the max_points limit
+        max_points = 25000
         step = max(1, total_points // max_points)
 
-        # Apply the step size and filter to select data within time range and depth >= 10
         time_filtered = time_data[(time_data >= time_range[0]) & (time_data <= time_range[1])][::step]
         depth_filtered = depth_data[(time_data >= time_range[0]) & (time_data <= time_range[1])][::step]
         data_filtered = data[(time_data >= time_range[0]) & (time_data <= time_range[1])][::step]
-		
-        # Apply the depth filter to exclude depths < 10
+
         valid_indices = depth_filtered >= 10
         time_filtered = time_filtered[valid_indices]
         depth_filtered = depth_filtered[valid_indices]
         data_filtered = data_filtered[valid_indices]
+
         fig = go.Figure()
 
-        # Scatter plot for depth vs time colored by temperature
         scatter = go.Scatter(
             x=time_filtered,
             y=depth_filtered,
@@ -79,42 +72,37 @@ def run_dives(depid, path=None, cmap = 'temperature'):
                 color=data_filtered,
                 colorscale='Viridis',
                 colorbar=dict(title=cmap),
-				cmax = 15
+                cmax=15
             ),
             name='Depth'
         )
         fig.add_trace(scatter)
 
-        # Dynamically add traces for selected columns
-        color_map = {
-            'era': 'darkorange',
-            'rolling_average': 'red'
-            # Add more colors if needed
-        }
+        # Define a set of colors that contrasts well with Viridis
+        line_colors = ['crimson', 'orange', 'purple', 'cyan', 'pink', 'darkorange', 'brown', 'fuschia']
+        color_map = {col: line_colors[i % len(line_colors)] for i, col in enumerate(selected_columns)}
 
         for col in selected_columns:
             if col in list(ds.variables.keys()):
-                col_data = ds[col][:].data[(time_data >= time_range[0]) & (time_data <= time_range[1])]
+                col_data = ds[col][:].data[(time_data >= time_range[0]) & (time_data <= time_range[1])][::step][valid_indices]
                 trace = go.Scatter(
-                    x=time_data[(time_data >= time_range[0]) & (time_data <= time_range[1])],
+                    x=time_filtered,
                     y=col_data,
                     mode='lines',
-                    line=dict(color=color_map.get(col, 'blue'), width=2),
+                    line=dict(color=color_map[col], width=5),
                     name=col,
                     yaxis='y2'
                 )
                 fig.add_trace(trace)
             elif col in list(dive_ds.columns):
                 time_name = 'end_time' if 'up' in col else 'begin_time'
-                dive_time_filtered = dive_ds[time_name][(dive_ds[time_name] >= time_range[0]) & (dive_ds[time_name] <= time_range[1])]
-                dive_col_filtered = dive_ds[col][(dive_ds[time_name] >= time_range[0]) & (dive_ds[time_name] <= time_range[1])]
-
-                
+                dive_time_filtered = dive_ds[time_name][(dive_ds[time_name] >= time_range[0]) & (dive_ds[time_name] <= time_range[1])][::step]
+                dive_col_filtered = dive_ds[col][(dive_ds[time_name] >= time_range[0]) & (dive_ds[time_name] <= time_range[1])][::step]
                 trace = go.Scatter(
                     x=dive_time_filtered,
                     y=dive_col_filtered,
                     mode='lines',
-                    line=dict(color=color_map.get(col, 'blue'), width=2),
+                    line=dict(color=color_map[col], width=5),
                     name=col,
                     yaxis='y2'
                 )
