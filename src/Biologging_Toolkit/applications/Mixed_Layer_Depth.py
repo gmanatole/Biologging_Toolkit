@@ -153,7 +153,108 @@ class MixedLayerDepth(Dives) :
 				_zn2.append(_zn2_temp)
 			self.zn2.append(_zn2)
 			self.zn1.append(_zn1)
+
 		
+'''import numpy as np
+import xarray as xr
+import cf_xarray
+
+def compute_mld(ds, grid, density_threshold=0.02,temp_threshold=0.2):
+
+    """
+    Compute the mixed layer depth with a density threshold criteria on sigma0.
+    If the mld is equal to the maximum depth of the profile, it is replaced by a NaN.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        ds must contain sigma0 with the cf compliant 'standard_name' attribute:
+        {'standard_name':'sea_water_sigma_t'}
+        The depth dimension must have the {'axis':'Z'} attribute.
+    grid : xgcm.Grid
+        Grid associated with ds.
+    density_threshold : float, default 0.02
+       Threshold applied on density to determine the MLD
+
+    Returns
+    -------
+    xarray.DataArray
+    """
+
+    out = xr.Dataset()
+    # We don't use the xarray interpolation due to the presence of NaNs,
+    # it is written in the scipy.interpolate.interp1d that data should not have NaNs
+    # out['sigma0_10_m'] = ds.sigma0.where(~np.isnan(ds.sigma0), drop=True).interp(depth=10).drop_vars(['depth'], errors='ignore')
+
+    #depth = ds.cf.axes["Z"][0]
+   
+    # Get sigma0 at 10 m depth
+
+    if np.isnan(ds.cf['sea_water_sigma_t']).all()==False:
+        out["sigma0_10_m"] = grid.transform(
+            ds.cf['sea_water_sigma_t'], "Z", np.array([10]), target_data=ds.cf['depth']
+        ).squeeze()
+        out["sigma0_diff_from_surf"] = xr.where(
+            ds.cf['depth'] >= 10, ds.cf['sea_water_sigma_t'] - out.sigma0_10_m, 0
+        )
+
+        out['depth'] = ds.cf['depth']
+
+        out["mld"] = (
+            grid.transform(
+                out['depth'].broadcast_like(out.sigma0_diff_from_surf),
+                "Z",
+                np.array([density_threshold]),
+                target_data=out.sigma0_diff_from_surf,
+            )
+            .isel(sigma0_diff_from_surf=0)
+            .drop_vars(["sigma0_diff_from_surf"])
+        )
+
+        out["mld"].attrs.update({"MLD_calculation":"temperature and salinity available"})
+
+ 
+
+    else:
+        out["temp_10_m"] = grid.transform(
+            ds.cf['sea_water_potential_temperature'], "Z", np.array([10]), target_data=ds.cf['depth']
+        ).squeeze()
+
+        out["temp_diff_from_surf"] = xr.where(
+            ds.cf['depth'] >= 10, ds.cf['sea_water_potential_temperature'] - out.temp_10_m, 0
+        )
+
+        out['depth'] = ds.cf['depth']
+
+        out["mld"] = (
+            grid.transform(
+                out['depth'].broadcast_like(out.temp_diff_from_surf),
+                "Z",
+                np.array([temp_threshold]),
+                target_data=out.temp_diff_from_surf,
+            )
+            .isel(temp_diff_from_surf=0)
+            .drop_vars(["temp_diff_from_surf"])
+        )
+
+        out["mld"].attrs.update({"MLD_calculation":"only temperature available"})
+		         
+    # remove mld where mld >= max(depth)
+    out["mld"] = out["mld"].where(out["mld"] < out['depth'].cf.max("Z"))
+
+    # cf attribute
+    out["mld"].attrs.update({"standard_name": "ocean_mixed_layer_thickness"})
+
+    # see https://github.com/xarray-contrib/cf-xarray/issues/285
+    try:
+        out["mld"] = out["mld"].cf.add_canonical_attributes()
+
+    except IndexError:
+        pass
+    return out["mld"]
+
+
+
 
 import matplotlib.pyplot as plt
 def plot(inst, aux, window_size = 10):
@@ -180,3 +281,4 @@ def plot(inst, aux, window_size = 10):
 	ax2.set_ylabel('Wind Speed (m/s)')
 	plt.grid()
 	plt.show()
+'''
