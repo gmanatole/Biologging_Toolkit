@@ -84,7 +84,7 @@ def get_xml_columns(path, **kwargs) :
 		chans_array = np.array(chans_numbers)
 	else :
 		return 'Column number names were not found'
-	return [np.where(chans_array == num)[0] for num in num_name]
+	return np.squeeze([np.where(chans_array == num)[0] for num in num_name if np.any(chans_array == num)])
 	
 	
 	

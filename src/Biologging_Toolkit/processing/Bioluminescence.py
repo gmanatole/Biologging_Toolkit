@@ -27,7 +27,8 @@ class Bioluminescence(Wrapper):
         )
 		
 		self.samplerate = self.dt if not samplerate else samplerate 
-		
+		self.raw_path = raw_path
+
 
 	def process_raw(self, fsin = 50, length = 3600) :
 		
@@ -42,14 +43,15 @@ class Bioluminescence(Wrapper):
 		lenreq = len_ + bl / fsin
 		cue = 0
 		
+		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
+
 		L = []
-		
-		swv_fns = np.array(glob(os.path.join(raw_path, '*swv')))
+		L_col = get_xml_columns(swv_fns[0][:-3] + 'xml', cal='ext', qualifier2='d4')  # Get column of sonar files corresponding to light
 		for fn in swv_fns :
 			sig, fs = sf.read(fn)
 			
 			for idx in range(0, len(sig), nsamps):
-				ll = sig[idx:idx+nsamps, get_xml_columns(fn[:-3] + 'xml', cal='ext', qualifier2='d4')]
+				ll = sig[idx:idx+nsamps, L_col]
 			
 				# Clean the data
 				ll = self.fix_light_data(ll)
