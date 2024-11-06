@@ -216,13 +216,13 @@ class Wrapper():
 				for attr_name in self.ds.ncattrs():
 					setattr(new_ds, attr_name, getattr(self.ds, attr_name))
 
-		# Replace old file with new file
-		self.ds.close()
-		os.rename(new_file_path, os.path.join(self.path, self.ds_name + '.nc'))
-		self.ds = nc.Dataset(os.path.join(self.path, self.ds_name + '.nc'), mode='a', format='NETCDF4')
-
-
-
-
+			# Replace old file with new file
+			self.ds.close()
+			os.rename(new_file_path, os.path.join(self.path, self.ds_name + '.nc'))
+			self.ds = nc.Dataset(os.path.join(self.path, self.ds_name + '.nc'), mode='a', format='NETCDF4')
+	
+	
+	
+	
 
 
