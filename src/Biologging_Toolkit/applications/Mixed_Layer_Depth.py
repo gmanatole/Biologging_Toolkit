@@ -3,6 +3,10 @@ from Biologging_Toolkit.processing.Dives import Dives
 from Biologging_Toolkit.utils.format_utils import *
 from tqdm import tqdm 
 import pandas as pd
+import netCDF4 as nc
+import gsw
+from datetime import datetime, timedelta
+
 
 class MixedLayerDepth(Dives) :
 	
@@ -64,6 +68,31 @@ class MixedLayerDepth(Dives) :
 		self.dive_ds['zn2'] = self.zn2_smoothed
 		self.dive_ds.to_csv(self.dive_path, index = None)'''
 	
+	@staticmethod
+	def ctd_mld(ctd_path, variable = 'sigma0', threshold = 0.03):
+
+		ctd_ds = nc.Dataset(ctd_path)
+		ctd_time = np.array([(datetime(1950,1,1,0,0,0) + timedelta(elem)).timestamp() for elem in ctd_ds['JULD'][:].data])
+		temp = ctd_ds['TEMP_ADJUSTED'][:].data
+		temp[ctd_ds['TEMP_ADJUSTED'][:].mask] = np.nan
+		sal = ctd_ds['PSAL_ADJUSTED'][:].data
+		sal[ctd_ds['PSAL_ADJUSTED'][:].mask] = np.nan
+		sigma0 = gsw.density.sigma0(sal, temp)
+		ctd_mld = []
+		if variable == 'sigma0' :
+			for profile in sigma0:
+			    try :
+			        ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
+			    except ValueError :
+			        ctd_mld.append(np.nan)
+		if variable == 'temperature' :
+			for profile in temp:
+			    try :
+			        ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
+			    except ValueError :
+			        ctd_mld.append(np.nan)
+		return ctd_time, np.array(ctd_mld)
+
 	@staticmethod
 	def profile_check(depth, profile) :
 		indices = np.argsort(depth)
