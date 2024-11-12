@@ -6,7 +6,7 @@ from tqdm import tqdm
 from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from scipy.interpolate import RegularGridInterpolator
 
 #get_epoch_time = lambda x : calendar.timegm(x.timetuple()) if isinstance(x, datetime) else x
@@ -115,12 +115,12 @@ def return_cdsv2(filename, key, variables, years, months, days, hours, area):
 	r.download(filename)
 
 
-
+from scipy.interpolate import interp1d
 def join_era(depid, path, era_path, value, **kwargs):
 	default = {'units':'unknown', 'long_name':value}
 	attrs = {**default, **kwargs}
 	era_ds = Dataset(era_path)
-	time_era = np.array([(datetime(1900,1,1,0,0,0) + timedelta(hours = int(hour))).timestamp() for hour in era_ds['time'][:].data])
+	time_era = np.array([(datetime(1900,1,1,0,0,0) + timedelta(hours = int(hour))).replace(tzinfo=timezone.utc).timestamp() for hour in era_ds['time'][:].data])
 	interp_era = RegularGridInterpolator((time_era, era_ds['latitude'][:].data, era_ds['longitude'][:].data), era_ds[value][:].data, bounds_error = False)
 	
 	try :
@@ -132,13 +132,18 @@ def join_era(depid, path, era_path, value, **kwargs):
 		for attr_name, attr_value in var_attrs.items():
 			setattr(var, attr_name, attr_value)
 		var[:] = var_data
-		ds.close()
 	except (FileNotFoundError, RuntimeError):
 		print('No reference NetCDF file found')
 	
 	try :
 		dive_ds = pd.read_csv(os.path.join(path, depid + '_dive.csv'))
-		dive_ds[value] = interp_era((dive_ds.time, dive_ds.latitude, dive_ds.longitude))
+		lat_interp = interp1d(ds['time'][:].data, ds['lat'][:].data)
+		lon_interp = interp1d(ds['time'][:].data, ds['lon'][:].data)
+		dive_ds['lat'] = lat_interp(dive_ds.begin_time)
+		dive_ds['lon'] = lon_interp(dive_ds.begin_time)
+		dive_ds[value] = interp_era((dive_ds.begin_time, dive_ds.lat, dive_ds.lon))
 		dive_ds.to_csv(os.path.join(path, depid + '_dive.csv'), index = None)
 	except (FileNotFoundError, KeyError):
 		print('No dive dataframe found')
+	ds.close()
+
