@@ -115,9 +115,9 @@ class Inertial(Wrapper):
 		if isinstance(self._declination, str):
 			if self._declination == 'download':
 				# Case where _declination is 'compute'
-				dec_time = self.ds['time'][:].data[:: int(24*3600/self.dt/2)]  # We only need about one declination data every twelve hours
-				dec_lat = self.ds['lat'][:].data[:: int(24*3600/self.dt/2)]
-				dec_lon = self.ds['lon'][:].data[:: int(24*3600/self.dt/2)]
+				dec_time = self.ds['time'][:].data[:: int(24*3600/self.dt/8)]  # We only need about one declination data every twelve hours
+				dec_lat = self.ds['lat'][:].data[:: int(24*3600/self.dt/8)]
+				dec_lon = self.ds['lon'][:].data[:: int(24*3600/self.dt/8)]
 				dec_data = [get_declination(lat, lon, time) for lat, lon, time in zip(dec_lat, dec_lon, dec_time)]
 				pd.DataFrame({'time': dec_time, 'declination': dec_data}).to_csv('declination.csv')
 				self._declination = 'declination.csv'
