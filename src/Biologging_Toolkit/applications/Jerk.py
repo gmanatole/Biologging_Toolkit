@@ -114,18 +114,14 @@ class Jerk(Wrapper):
 		if sens_path :
 			data = nc.Dataset(sens_path)
 			self.samplerate = data['P'].sampling_rate
-			self.jerk = data['J'][:].data
 			self.P = data['P'][:].data
-			self.A = data['A'][:].data
-			self.M = data['M'][:].data
+			self.jerk = data['J'][:].data if 'J' in data.variables.keys() else np.full((len(self.P)), np.nan)
+			self.A = data['A'][:].data if 'A' in data.variables.keys() else np.full((3, len(self.P)), np.nan)
+			self.M = data['M'][:].data if 'M' in data.variables.keys() else np.full((3, len(self.P)), np.nan)
 			length = np.max([len(self.jerk), self.A.shape[1], self.M.shape[1], len(self.P)])
 			self.sens_time = datetime.strptime(data.dephist_device_datetime_start, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
 			self.A_cal_poly = data['A'].cal_poly[:].reshape(2, 3)
 			self.A_cal_map = data['A'].cal_map[:].reshape(3, 3)
-			self.M_cal_poly = data['M'].cal_poly[:].reshape(-1, 3)
-			self.M_cal_cross = data['M'].cal_cross[:].reshape(-1, 3)
-			self.M_cal_tseg = data['M'].cal_tseg[:]
-			self.M_cal_map = data['M'].cal_map[:].reshape(3, 3)
 		
 		elif data['time'] is not None and data['jerk'] is not None and data['P'] is not None :
 			self.sens_time, self.jerk, self.P = data['time'], data['jerk'], data['P']
@@ -238,17 +234,17 @@ class Jerk(Wrapper):
 		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
 		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))].flatten()
 		xml_start_time = get_start_date_xml(xml_fns)
+		self.hr_samplerate = samplerate
 		if samplerate == 50 :
 			idx_names = idx_names[:,0]
 		
-		hr_peaks = {'start_time':[],'end_time':[],'max_time':[],'max':[],'duration':[],'depth':[],'datetime':[],'timestamp':[]}	
+		hr_peaks = {'start_time':[],'end_time':[],'max_time':[],'max':[],'duration':[],'depth':[]}	
 		idx_names = get_xml_columns(xml_fns[0], cal='acc', qualifier2='d4') 
 		
 		for i, swv_fn in enumerate(swv_fns) :
-
 			sig, fs = sf.read(swv_fn)
 			A = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
-			A = (A_peak * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
+			A = (A * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
 			jerk = self.norm_jerk(A, fs)
 			cc, cend, peak_time, peak_max, minlen = self.get_peaks(jerk = jerk,
 									samplerate = fs,
@@ -258,14 +254,50 @@ class Jerk(Wrapper):
 			hr_peaks['start_time'].extend(xml_start_time[i] + cc / samplerate)
 			hr_peaks['end_time'].extend(xml_start_time[i] + cend / samplerate)
 			hr_peaks['max_time'].extend(xml_start_time[i] + peak_time / samplerate)
-			hr_peaks['max'].append(peak_max)
+			hr_peaks['max'].extend(peak_max)
+		hr_peaks['start_time'] = np.array(hr_peaks['start_time'])
+		hr_peaks['end_time'] = np.array(hr_peaks['end_time'])
+		hr_peaks['max_time'] = np.array(hr_peaks['max_time'])
 		indices = np.searchsorted(self.ds['time'][:], hr_peaks['max_time'], side='right') - 1
 		hr_peaks['duration'] = hr_peaks['end_time'] - hr_peaks['start_time']
 		hr_peaks['depth'] = self.ds['depth'][:].data[indices]
+		mask = hr_peaks['depth'] >= 20
+		hr_peaks = {key: np.array(value)[mask] for key, value in hr_peaks.items()}
 		hr_peaks['samplerate'] = samplerate
 		self.hr_peaks = {key: np.array(value) for key, value in hr_peaks.items()}
 			
 		
+	def distance_detection(self, jerk_data = 'high') :
+		'''
+		jerk_data : str
+			Where to get jerk detections from. 
+			'high' needs high resolution detection dictionary. Recommanded. 
+			'low' requires low resolution detection dictionary.
+			'ref' requires jerk data to be saved in reference structure.
+		'''
+		if jerk_data == 'high' :
+			jerk_time = self.hr_peaks['start_time']
+		elif jerk_data == 'low' :
+			jerk_time = self.lr_peaks['start_time']
+		else :
+			jerk_time = self.ds['time'][:][self.ds['jerk'][:] > 0] 
+		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
+		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
+		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))].flatten()
+		xml_start_time = get_start_date_xml(xml_fns)
+		idx_names = get_xml_columns(xml_fns[0], cal='acc', qualifier2='d4') 
+		if self.hr_samplerate == 50 :
+			idx_names = idx_names[:,0]
+		indices = np.searchsorted(xml_start_time, jerk_time)-1
+		
+		for i, swv_fn in enumerate(swv_fns) :
+			sig, fs = sf.read(swv_fn)
+			A = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
+			A = (A * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
+			for jerk in jerk_time[indices == i] :
+				_jerk_time = jerk - xml_start_time[i]
+				approach = A[int((_jerk_time - 15) * self.hr_samplerate) : int((_jerk_time - 1) * self.hr_samplerate)]
+	      
 	def check_peaks(self, samplerate = 200) :
 		"""
 		Verify low-resolution jerk detections using high-resolution data from DTAG4.
@@ -348,6 +380,7 @@ class Jerk(Wrapper):
 		cend : np.ndarray
 			Array of end indices of detected peaks.
 		peak_time : np.ndarray
+			Array of indices for maximum of detected peaks
 			Array of times (since device started logging) at which the peak maximum occurs in seconds.
 		peak_max : np.ndarray
 			Array of maximum values of the detected peaks.
