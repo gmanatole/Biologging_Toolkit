@@ -232,7 +232,10 @@ class Jerk(Wrapper):
 		"""
 		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
 		xml_fns = np.array(glob(os.path.join(self.raw_path, '*xml')))
-		xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))].flatten()
+		try :
+			xml_fns = xml_fns[xml_fns != glob(os.path.join(self.raw_path, '*dat.xml'))].flatten()
+		except ValueError :
+			pass
 		xml_start_time = get_start_date_xml(xml_fns)
 		self.hr_samplerate = samplerate
 		if samplerate == 50 :
@@ -246,15 +249,17 @@ class Jerk(Wrapper):
 			A = np.column_stack([sig[:,idx_names[i]].flatten() for i in range(len(idx_names))])
 			A = (A * self.A_cal_poly[0] + self.A_cal_poly[1]) @ self.A_cal_map
 			jerk = self.norm_jerk(A, fs)
-			cc, cend, peak_time, peak_max, minlen = self.get_peaks(jerk = jerk,
+			peaks = self.get_peaks(jerk = jerk,
 									samplerate = fs,
 									threshold = self.hr_threshold,
 									blanking = self.hr_blanking,
 									duration = self.hr_duration)
-			hr_peaks['start_time'].extend(xml_start_time[i] + cc / samplerate)
-			hr_peaks['end_time'].extend(xml_start_time[i] + cend / samplerate)
-			hr_peaks['max_time'].extend(xml_start_time[i] + peak_time / samplerate)
-			hr_peaks['max'].extend(peak_max)
+			if peaks is not None :
+				cc, cend, peak_time, peak_max, minlen = peaks 
+				hr_peaks['start_time'].extend(xml_start_time[i] + cc / samplerate)
+				hr_peaks['end_time'].extend(xml_start_time[i] + cend / samplerate)
+				hr_peaks['max_time'].extend(xml_start_time[i] + peak_time / samplerate)
+				hr_peaks['max'].extend(peak_max)
 		hr_peaks['start_time'] = np.array(hr_peaks['start_time'])
 		hr_peaks['end_time'] = np.array(hr_peaks['end_time'])
 		hr_peaks['max_time'] = np.array(hr_peaks['max_time'])
