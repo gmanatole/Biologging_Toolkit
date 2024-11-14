@@ -5,7 +5,7 @@ from tqdm import tqdm
 import pandas as pd
 import netCDF4 as nc
 import gsw
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class MixedLayerDepth(Dives) :
@@ -13,8 +13,10 @@ class MixedLayerDepth(Dives) :
 	def __init__(self,
 			  depid : str,
 			  *,
-			  path : str = None  ,
-			  threshold = 0.2,  #0.2 from Dong, 2008
+			  path : str = None,
+			  meop_path : str = None,
+			  threshold_temperature = 0.2,  #0.2 from Dong, 2008
+			  threshold_density = 0.03,   #Montegut 2004
 			  criterion = 0.3
 			  ):
 		
@@ -24,27 +26,41 @@ class MixedLayerDepth(Dives) :
 			path = path
         )
 		
-		self.depth = self.ds['depth'][:].data
-		self.temp = self.ds['temperature'][:].data
-		self.dives = self.ds['dives'][:].data
+		self.meop_path = meop_path
+		try :
+			self.depth = self.ds['depth'][:].data
+			self.temp = self.ds['temperature'][:].data
+			self.dives = self.ds['dives'][:].data
+		except IndexError:
+			print('Depth, temperature or dive data is not found in reference structure')
 		self.criterion = criterion
-		self.threshold = threshold
+		self.threshold_temperature = threshold_temperature
+		self.threshold_density = threshold_density
 
 
 	def __call__(self, overwrite = False):
 		return self.forward(overwrite = overwrite)
 	
-	def forward(self, overwrite = True):
-		self.get_threshold_mld()
-		self.threhsold_mld = np.array(self.threshold_mld).reshape(-1,2)
-		self.get_relative_variance_mld()
+	def forward(self, overwrite = True, method = 'meop', variable = 'sigma0'):
 		
-		self.dive_ds['zn1_up'] = np.array(self.zn1)[:,1]
-		self.dive_ds['zn2_up'] = np.array(self.zn2)[:,1]
-		self.dive_ds['zn1_down'] = np.array(self.zn1)[:,0]
-		self.dive_ds['zn2_down'] = np.array(self.zn2)[:,0]
-		self.dive_ds['threhsold_up'] = self.threhsold_mld[:,0]
-		self.dive_ds['threhsold_down'] = self.threhsold_mld[:,1]
+		if method == 'raw_threshold':
+			self.get_threshold_mld()
+			self.threhsold_mld = np.array(self.threshold_mld).reshape(-1,2)
+			self.dive_ds['threhsold_up'] = self.threhsold_mld[:,0]
+			self.dive_ds['threhsold_down'] = self.threhsold_mld[:,1]
+		if method == 'raw_variance' :
+			self.get_relative_variance_mld()
+			self.dive_ds['zn1_up'] = np.array(self.zn1)[:,1]
+			self.dive_ds['zn2_up'] = np.array(self.zn2)[:,1]
+			self.dive_ds['zn1_down'] = np.array(self.zn1)[:,0]
+			self.dive_ds['zn2_down'] = np.array(self.zn2)[:,0]
+		if method == 'meop' :
+			threshold = self.threshold_density if variable == 'sigma0' else self.threshold_temperature
+			time_mld, mld = self.ctd_mld(self.meop_path, variable, threshold)
+			indices_mld = np.searchsorted(self.dive_ds.begin_time, time_mld[time_mld < self.dive_ds.end_time.iloc[-1]])
+			final_mld = np.full(len(self.dive_ds), np.nan)
+			final_mld[indices_mld-1] = mld[time_mld < self.dive_ds.end_time.iloc[-1]]
+			self.dive_ds['meop_mld'] = final_mld
 		self.dive_ds.to_csv(self.dive_path, index = None)
 		
 	'''
@@ -72,7 +88,7 @@ class MixedLayerDepth(Dives) :
 	def ctd_mld(ctd_path, variable = 'sigma0', threshold = 0.03):
 
 		ctd_ds = nc.Dataset(ctd_path)
-		ctd_time = np.array([(datetime(1950,1,1,0,0,0) + timedelta(elem)).timestamp() for elem in ctd_ds['JULD'][:].data])
+		ctd_time = np.array([(datetime(1950,1,1,0,0,0) + timedelta(elem)).replace(tzinfo=timezone.utc).timestamp() for elem in ctd_ds['JULD'][:].data])
 		temp = ctd_ds['TEMP_ADJUSTED'][:].data
 		temp[ctd_ds['TEMP_ADJUSTED'][:].mask] = np.nan
 		sal = ctd_ds['PSAL_ADJUSTED'][:].data
@@ -138,7 +154,7 @@ class MixedLayerDepth(Dives) :
 				_depth, _temp = self.threshold_profile_check(_depth, _temp)
 
 				i = 0
-				while (i < len(_temp)) and (abs(_temp[i] - _temp[0]) < self.threshold):
+				while (i < len(_temp)) and (abs(_temp[i] - _temp[0]) < self.threshold_temperature):
 					i+=1
 				if i == len(_temp) or abs(_temp[i] - _temp[0]) > 0.7 :  #Flag criterion from Montegut, 2004
 					self.threshold_mld.append(np.nan)
@@ -183,6 +199,13 @@ class MixedLayerDepth(Dives) :
 			self.zn2.append(_zn2)
 			self.zn1.append(_zn1)
 
+
+	def get_wind_correlation(self) :
+		for i in range(24):
+		    df[f'wind_{i}h'] = np.nan
+		    for depid in depids :
+		        wind_interp = interp1d(df[df.ses == depid].end_time, df[df.ses == depid].wind_speed, bounds_error = False)
+		        df[f'wind_{i}h'][df.ses == depid] = wind_interp(df[df.ses == depid].end_time - i*3600)
 		
 '''import numpy as np
 import xarray as xr
