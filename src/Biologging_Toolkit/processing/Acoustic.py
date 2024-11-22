@@ -200,7 +200,7 @@ class Acoustic(Wrapper):
 			for j in range(len(_time_diffs)):
 
 				sig = data[int(_time_diffs[j] * self.samplerate) : int((_time_diffs[j] + self.params['duration']) * self.samplerate)]
-				Sxx = np.zeros([Nfreqs, Nbwin])
+				Sxx = np.full([Nfreqs, Nbwin], np.nan)
 				#Compute the spectrogram for desired duration and with chosen window parameters
 				for idwin in range(Nbwin):
 					if self.params['nfft'] < (self.params['window_size']):
