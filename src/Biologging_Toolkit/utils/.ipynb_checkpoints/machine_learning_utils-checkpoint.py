@@ -134,8 +134,12 @@ def preprocess_dive_files(depid, ds, path, fns, variable, supplementary_data, se
             continue
         if len(np.unique(fns[mask])) == 1:
             _data = np.load(fns[mask][0])
-            pos = np.searchsorted(_data['time'][:len(_data['time'])], time_array[mask])
-            spectro = _data['spectro'][pos]
+            pos = np.searchsorted(_data['time'], time_array[mask])
+            try :
+                spectro = _data['spectro'][pos]
+            except IndexError :
+                print(depid, idx)
+                continue
         else :
             spectro = []
             for fn in np.unique(fns[mask]) :
