@@ -1,6 +1,7 @@
-import torch
-from torch import nn, tensor, utils, device, cuda, optim, long, save
 from Biologging_Toolkit.wrapper import Wrapper
+from Biologging_Toolkit.config.config_weather import *
+from Biologging_Toolkit.utils.format_utils import *
+from Biologging_Toolkit.processing.Dives import *
 import numpy as np
 from typing import Union, Tuple, List
 from sklearn.model_selection import StratifiedKFold
@@ -16,73 +17,52 @@ def beaufort(x):
     return next((i for i, limit in enumerate([0.3, 1.6, 3.4, 5.5, 8, 10.8, 13.9, 17.2, 20.8, 24.5, 28.5, 32.7]) 
                  if x < limit), 12)
 
-class Wind(Wrapper):
-	
+class Wind():
+
+	self.seq_length = 800
 	
 	def __init__(
 		self,
-		dataset_path: str,
-		method: str = None,
-		ground_truth : str = 'era',
-		weather_params : dict = None,
+		depid : Union[str, List]
 		*,
-		gps_coordinates: Union[str, List, Tuple, bool] = True,
-		depth: Union[str, int, bool] = True,
-		owner_group: str = None,
-		batch_number: int = 5,
-		local: bool = True,
-		
-		era : Union[str, bool] = False,
-		annotation : Union[dict, bool] = False,
-		other: dict = None
+		path : Union[str, List] = None,
+		acoustic_path : Union[str, List] = None,
+        method: str = 'Pensieri',
+		split_method : str = 'depid',
+		nsplit : float = 0.8,
+		test_depid : Union[str, List] = 'ml21_305b'
 		):
 		
 		"""		
-		Parameters:
-			dataset_path (str): The path to the dataset.
-			method (str) : Method or more generally processing pipeline and model used to estimate wind speed. Found in config_weather.py.
-			ground_truth (str) : Column name from auxiliary data that stores wind speed data that will be used as ground truth. 
-			dataset_sr (int, optional): The dataset sampling rate. Default is None.
-			weather_params (dict) : Enter your own parameters for wind estimation. Will be taken into account if method = None.
-				- frequency : 'int'        
-				- samplerate : 'int'
-				- preprocessing
-					- nfft : 'int'
-					- window_size : 'int'
-					- spectro_duration : 'int'
-					- window : 'str'
-					- overlap : 'float'
-				- function : func
-				- averaging_duration : 'int'
-				- parameters
-					- a : 'float'
-					- b : 'float'
-					- ...
-			analysis_params (dict, optional): Additional analysis parameters. Default is None.
-			gps_coordinates (str, list, tuple, bool, optional): Whether GPS data is included. Default is True. If string, enter the filename (csv) where gps data is stored.
-			depth (str, int, bool, optional): Whether depth data is included. Default is True. If string, enter the filename (csv) where depth data is stored.
-			era (bool, optional): Whether era data is included. Default is False. If string, enter the filename (Network Common Data Form) where era data is stored.
-			annotation (bool, optional): Annotation data is included. Dictionary containing key (column name of annotation data) and absolute path of csv file where annotation data is stored. Default is False. 
-			other (dict, optional): Additional data (csv format) to join to acoustic data. Key is name of data (column name) to join to acoustic dataset, value is the absolute path where to find the csv. Default is None.
 		"""
-				
-		if method :
-			self.method = empirical[method]
-			analysis_params['nfft'] = self.method['preprocessing']['nfft']
-			analysis_params['window_size'] = self.method['preprocessing']['window_size']
-			analysis_params['spectro_duration'] = self.method['preprocessing']['spectro_duration']
-			dataset_sr = self.method['samplerate']
+
+		self.depid = depid
+		self.path = path
+		self.acoustic_path = acoustic_path
+		if isinstance(self.depid, List) :
+			assert len(self.depid) == len(self.acoustic_path) and len(self.depid) == len(self.path), "Please provide paths for each depid"
 		else :
-			self.method = weather_params
-			
-		super().__init__(dataset_path, gps_coordinates=gps_coordinates, depth=depth, dataset_sr=weather_params['samplerate'], 
-				   owner_group=owner_group, analysis_params=weather_params['preprocessing'], batch_number=batch_number, local=local,
-				   era = era, annotation=annotation, other=other)
+			self.depid = [self.depid]
+			self.acoustic_path = [self.acoustic_path]
+			self.path = [self.path]
+		self.ref = self.depid[0] if len(self.depid) == 1 else split_parameters['test_depid']
+		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[]}
+		for dep_path, dep, ac_path in zip(self.path, self.depid, self.acoustic_path) :
+		    _df = pd.read_csv(os.path.join(dep_path, f'{dep}_dive.csv'))
+		    _df['depid'] = dep
+		    for i, row in _df.iterrows() :
+		        if os.path.exists(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz')):
+		            df['fns'].append(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz'))
+		            df['dive'].append(row.dive)
+		            df['begin_time'].append(row.begin_time)
+		            df['end_time'].append(row.end_time)
+		            df['depid'].append(row.depid)
+		self.df = pd.DataFrame(df)
+		if split_method == 'depid':
+			self.train_split, self.test_split = get_train_test_split(self.fns.to_numpy(), self.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, test_depid = test_depid)
+		else :
+			self.train_split, self.test_split = get_train_test_split(self.fns.to_numpy(), self.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, split = nsplit)
 		
-		self.ground_truth = ground_truth		
-		if self.ground_truth not in self.df :
-			print(f"Ground truth data '{self.ground_truth}' was not found in joined dataframe.\nPlease call the correct joining method or automatic_join()")
-		self.popt, self.wind_model_stats = {}, {}
 
 	def __str__(self):
 		if 'wind_model_stats' in dir(self):
@@ -100,7 +80,39 @@ class Wind(Wrapper):
 				print(f"{key:<{6}} : {value}")
 			return "To fit your model, please call skf_fit() for example"
 	
+	def fetch_data(self, method = 'upwards', aggregation = 'mean', frequency = 5000):
 
+		if aggregation == 'mean' :
+			agg = np.nanmean
+		elif aggregation == 'median' :
+			agg = np.nanmedian
+		for i, depid in enumerate(self.depid) :
+			wind_speed = []
+			spl = []
+			dive = Dives(depid, path = self.path[i])
+			if method == 'upwards':
+				mask, down = dive.get_dive_direction(dive.ds['depth'][:].data)
+				mask = resample_boolean_array(mask, len(dive.ds['depth'][:]))
+			elif method == 'downwards':
+				up, mask = dive.get_dive_direction(dive.ds['depth'][:].data)
+				mask = resample_boolean_array(mask, len(dive.ds['depth'][:]))
+			else :
+				mask = True
+			for i, row in dive.dive_ds.iterrows() :
+				try :
+					_data = np.load(os.path.join(self.acoustic_path[i], f'{dep}_dive_{int(row.dive):05d}.npz'))
+				except FileNotFoundError :
+					spl.append(np.nan)
+					wind_speed.append(np.nan)
+					continue
+				idx_freq = np.argmin(abs(_data['freq'] - frequency))
+				time_mask = dive.ds['time'][:].data[(dive.ds['dives'][:].data == row.dive) & mask & (dive.ds['depth'][:].data > 10)]
+				spl.append(agg(_data['spectro'][np.isin(_data['time'], time_mask), idx_freq]))
+				wind_speed.append(agg(dive.ds['wind_speed'][:].data[(dive.ds['dives'][:].data == row.dive) & mask]))
+			dive.dive_ds['wind_speed'] = wind_speed
+			dive.dive_ds[f'{method}_{aggregation}_{frequency}'] = spl
+			dive.dive_ds.to_csv(dive.dive_path, index = None)
+	
 	def median_filtering(self, kernel_size = 5):
 		'''
 		Whether or not to apply scipy's median filtering to data
@@ -161,28 +173,4 @@ class Wind(Wrapper):
 		self.wind_model_stats.update({'skf_mae':np.mean(mae), 'skf_rmse':np.mean(rmse), 'skf_r2':np.mean(r2), 'skf_var':np.mean(var), 'skf_std':np.mean(std)})
 
 
-	def lstm_fit(self, seq_length = 10, **kwargs) :
-		default = {'learning_rate':0.001,'epochs':75,'weight_decay':0.000,'hidden_dim':512, 'n_splits':5, 'n_cross_validation':1}
-		params = {**default, **kwargs}
-		self.df['classes'] = self.df[self.ground_truth].apply(beaufort)
-		self.df['lstm_estimation'] = np.nan
-		self.df.dropna(subset = [self.method['frequency'], self.ground_truth], inplace = True)
-		skf = StratifiedKFold(n_splits=params['n_splits'])
-		split = skf.split(self.df[self.method['frequency']], self.df.classes)
-		for i in range(min(params['n_splits'], params['n_cross_validation'])):
-			# set the device (CPU or GPU)
-			device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-			# create the model and move it to the specified device
-			model = dl_utils.RNNModel(1, params['hidden_dim'], 1, 1)
-			model.to(device)
-			# create the loss function and optimizer
-			criterion = nn.MSELoss()
-			optimizer = optim.Adam(model.parameters(), lr=params['learning_rate'], weight_decay=params['weight_decay'])
-
-			train_indices, test_indices = next(split)
-			trainset, testset = self.df.loc[train_indices], self.df.loc[test_indices]
-			train_loader = utils.data.DataLoader(dl_utils.Wind_Speed(trainset, self.method['frequency'], self.ground_truth, seq_length=seq_length), batch_size = 64, shuffle = True)
-			test_loader = utils.data.DataLoader(dl_utils.Wind_Speed(testset, self.method['frequency'], self.ground_truth, seq_length=seq_length), batch_size = 64, shuffle=False)
-			estimation = dl_utils.train_rnn(model, train_loader, test_loader, criterion, optimizer, num_epochs = params['epochs'], device = device)		
-			self.df.loc[test_indices, 'lstm_estimation'] = estimation
 
