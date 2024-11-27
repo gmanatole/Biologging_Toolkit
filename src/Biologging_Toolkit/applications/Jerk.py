@@ -151,25 +151,33 @@ class Jerk(Wrapper):
 		overwrite : bool, optional
 			If True, overwrites any existing 'jerk' variable in the NetCDF dataset. Default is False.
 		resolution : str, optional
-			Specifies the resolution of peaks to process. Can be 'high' or 'low'. Default is 'high'.
+			Specifies the resolution of peaks to process. Can be 'high' or 'low' or 'low_check'. Default is 'high'.
 		"""
 		
-		self.low_resolution_peaks()
+		if resolution == 'high':
+			self.high_resolution_peaks()
+			peaks = self.hr_peaks
+			threshold = self.hr_threshold
+			blanking = self.hr_blanking
+			duration = self.hr_duration
+			np.savez(os.path.join(self.path, f'{self.depid}_hr_jerks'), self.hr_peaks)
 		
-		if resolution == 'high' :
+		elif resolution == 'low_check' :
+			self.low_resolution_peaks()
 			self.check_peaks()
 			peaks = self.hr_peaks
 			threshold = self.hr_threshold
 			blanking = self.hr_blanking
 			duration = self.hr_duration
 		else :
+			self.low_resolution_peaks()
 			peaks = self.lr_peaks
 			threshold = self.lr_threshold
 			blanking = self.lr_blanking
 			duration = self.lr_duration
 			
 		jerks = np.full(len(self.ds['time']), 0)
-		indices = np.searchsorted(self.ds['time'][:].data, peaks['timestamp'], side='right') - 1
+		indices = np.searchsorted(self.ds['time'][:].data, peaks['max_time'], side='right') - 1
 		jerks[indices] = peaks['max']
 		
 		if overwrite :
@@ -269,6 +277,10 @@ class Jerk(Wrapper):
 		mask = hr_peaks['depth'] >= 20
 		hr_peaks = {key: np.array(value)[mask] for key, value in hr_peaks.items()}
 		hr_peaks['samplerate'] = samplerate
+		self.raw_samplerate = samplerate
+		hr_peaks['banking'] = self.hr_blanking
+		hr_peaks['threshold'] = self.hr_threshold
+		hr_peaks['duration'] = self.hr_duration
 		self.hr_peaks = {key: np.array(value) for key, value in hr_peaks.items()}
 			
 		
