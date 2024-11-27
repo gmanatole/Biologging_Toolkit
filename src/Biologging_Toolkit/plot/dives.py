@@ -101,10 +101,10 @@ def run_dives(depid, path=None, cmap='temperature'):
                 trace = go.Scatter(
                     x=dive_time_filtered,
                     y=dive_col_filtered,
-                    mode='lines',
+                    mode='markers',
                     line=dict(color=color_map[col], width=5),
                     name=col,
-                    yaxis='y2'
+                    yaxis='y' if col == 'meop_mld' else 'y2'
                 )
                 fig.add_trace(trace)
 
