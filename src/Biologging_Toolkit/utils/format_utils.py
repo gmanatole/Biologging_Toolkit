@@ -153,6 +153,25 @@ def resample_boolean_array(arr, N):
     resampled_arr = [arr[i] for i in resampled_indices]
     return resampled_arr
 	
-	
+def get_train_test_split(paths, indices, depids, method = 'random_split', test_depid = None, split = 0.8) :
+	if method == 'depid' :
+		if isinstance(test_depid, str) :
+			test_depid = [test_depid]
+		training = np.where(~np.isin(depids, test_depid))[0]
+		testing = np.where(np.isin(depids, test_depid))[0]
+		return (paths[training], indices[training]), (paths[testing], indices[testing])
+
+	elif method == 'temporal_split' :
+		return (paths[:int(split * len(indices))], indices[:int(split * len(indices))]), (paths[int(split * len(indices)):], indices[int(split * len(indices)):])
+
+	elif method == 'random_split' :
+		np.random.seed(32)
+		suffle_idx = list(range(len(indices)))
+		random.shuffle(suffle_idx)
+		indices = [indices[i] for i in suffle_idx]
+		paths = [paths[i] for i in suffle_idx]
+		return (paths[:int(split * len(indices))], indices[:int(split * len(indices))]), (paths[int(split * len(indices)):], indices[int(split * len(indices)):])
+	elif method == 'skf':
+		raise NotImplementedError("This method is to be implemented later.")
 	
 	

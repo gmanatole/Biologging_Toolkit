@@ -118,7 +118,7 @@ class Inertial(Wrapper):
 				dec_time = self.ds['time'][:].data[:: int(24*3600/self.dt/8)]  # We only need about one declination data every twelve hours
 				dec_lat = self.ds['lat'][:].data[:: int(24*3600/self.dt/8)]
 				dec_lon = self.ds['lon'][:].data[:: int(24*3600/self.dt/8)]
-				dec_data = [get_declination(lat, lon, time) for lat, lon, time in zip(dec_lat, dec_lon, dec_time)]
+				dec_data = [np.nan if (np.isnan(lat) or np.isnan(lon) or np.isnan(time)) else get_declination(lat, lon, time) for lat, lon, time in zip(dec_lat, dec_lon, dec_time)]
 				pd.DataFrame({'time': dec_time, 'declination': dec_data}).to_csv('declination.csv')
 				self._declination = 'declination.csv'
 				return interp1d(dec_time, dec_data, bounds_error=False, fill_value=None)
