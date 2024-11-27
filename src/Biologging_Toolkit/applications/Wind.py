@@ -2,6 +2,7 @@ from Biologging_Toolkit.wrapper import Wrapper
 from Biologging_Toolkit.config.config_weather import *
 from Biologging_Toolkit.utils.format_utils import *
 from Biologging_Toolkit.processing.Dives import *
+from Biologging_Toolkit.config.config_weather import *
 import numpy as np
 from typing import Union, Tuple, List
 from sklearn.model_selection import StratifiedKFold
@@ -19,14 +20,14 @@ def beaufort(x):
 
 class Wind():
 
-	self.seq_length = 800
+	seq_length = 800
 	
 	def __init__(
 		self,
-		depid : Union[str, List]
+		depid : Union[str, List],
 		*,
 		path : Union[str, List] = None,
-		acoustic_path : Union[str, List] = None,
+		acoustic_path : Union[str, List] = '',
         method: str = 'Pensieri',
 		split_method : str = 'depid',
 		nsplit : float = 0.8,
@@ -35,7 +36,6 @@ class Wind():
 		
 		"""		
 		"""
-
 		self.depid = depid
 		self.path = path
 		self.acoustic_path = acoustic_path
@@ -45,24 +45,31 @@ class Wind():
 			self.depid = [self.depid]
 			self.acoustic_path = [self.acoustic_path]
 			self.path = [self.path]
+
+		self.method = empirical[method]
 		self.ref = self.depid[0] if len(self.depid) == 1 else split_parameters['test_depid']
-		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[]}
+
+		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[], 'wind_speed':[]}
 		for dep_path, dep, ac_path in zip(self.path, self.depid, self.acoustic_path) :
-		    _df = pd.read_csv(os.path.join(dep_path, f'{dep}_dive.csv'))
-		    _df['depid'] = dep
-		    for i, row in _df.iterrows() :
-		        if os.path.exists(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz')):
-		            df['fns'].append(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz'))
-		            df['dive'].append(row.dive)
-		            df['begin_time'].append(row.begin_time)
-		            df['end_time'].append(row.end_time)
-		            df['depid'].append(row.depid)
+			_df = pd.read_csv(os.path.join(dep_path, f'{dep}_dive.csv'))
+			_df['depid'] = dep
+			for i, row in _df.iterrows() :
+				if os.path.exists(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz')):
+					df['fns'].append(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz'))
+				else :
+					df['fns'].append('N/A')
+				df['dive'].append(row.dive)
+				df['begin_time'].append(row.begin_time)
+				df['end_time'].append(row.end_time)
+				df['depid'].append(row.depid)
+				df['wind_speed'].append(row.wind_speed)
 		self.df = pd.DataFrame(df)
+
 		if split_method == 'depid':
-			self.train_split, self.test_split = get_train_test_split(self.fns.to_numpy(), self.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, test_depid = test_depid)
+			self.train_split, self.test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, test_depid = test_depid)
 		else :
-			self.train_split, self.test_split = get_train_test_split(self.fns.to_numpy(), self.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, split = nsplit)
-		
+			self.train_split, self.test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, split = nsplit)
+		self.popt, self.wind_model_stats = {}, {}
 
 	def __str__(self):
 		if 'wind_model_stats' in dir(self):
@@ -122,22 +129,24 @@ class Wind():
 
 	
 	def temporal_fit(self, **kwargs):
+
 		default = {'split':0.8, 'scaling_factor':0.2, 'maxfev':25000}
 		params = {**default, **kwargs}
 		if 'bounds' not in params.keys():
 			params['bounds'] = np.hstack((np.array([[value-params['scaling_factor']*abs(value), value+params['scaling_factor']*abs(value)] for value in self.method['parameters'].values()]).T, [[-np.inf],[np.inf]]))
 		self.df['temporal_estimation'] = np.nan
-		trainset = self.df.iloc[:int(params['split']*len(self.df))].dropna(subset = [self.method['frequency'], self.ground_truth])
-		testset = self.df.iloc[int(params['split']*len(self.df)):].dropna(subset = [self.method['frequency'], self.ground_truth])
-		popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), trainset[self.ground_truth].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
+		self.df = self.df.dropna(subset = [self.method['frequency'], 'wind_speed'])
+		trainset = self.df.iloc[:int(params['split']*len(self.df))]
+		testset = self.df.iloc[int(params['split']*len(self.df)):]
+		popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), trainset['wind_speed'].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
 		estimation = self.method['function'](testset[self.method['frequency']].to_numpy(), *popt)
-		mae = metrics.mean_absolute_error(testset[self.ground_truth], estimation)
-		rmse = metrics.root_mean_squared_error(testset[self.ground_truth], estimation)
-		r2 = metrics.r2_score(testset[self.ground_truth], estimation)
-		var = np.var(abs(testset[self.ground_truth])-abs(estimation))
-		std = np.std(abs(testset[self.ground_truth])-abs(estimation))
+		mae = metrics.mean_absolute_error(testset['wind_speed'], estimation)
+		rmse = metrics.root_mean_squared_error(testset['wind_speed'], estimation)
+		r2 = metrics.r2_score(testset['wind_speed'], estimation)
+		var = np.var(abs(testset['wind_speed'])-abs(estimation))
+		std = np.std(abs(testset['wind_speed'])-abs(estimation))
 		self.df.loc[testset.index, 'temporal_estimation'] = estimation
-		self.popt['temporal_fit'] = popt
+		self.popt.update({'temporal_fit' : popt})
 		self.wind_model_stats.update({'temporal_mae':mae, 'temporal_rmse':rmse, 'temporal_r2':r2, 'temporal_var':var, 'temporal_std':std})
 
 	def skf_fit(self, **kwargs):
@@ -152,24 +161,24 @@ class Wind():
 			params['bounds'] = np.hstack((np.array([[value-params['scaling_factor']*abs(value), value+params['scaling_factor']*abs(value)] for value in self.method['parameters'].values()]).T, [[-np.inf],[np.inf]]))
 		popt_tot, popv_tot = [], []
 		mae, rmse, r2, var, std = [], [], [], [], []
-		self.df['classes'] = self.df[self.ground_truth].apply(beaufort)
+		self.df['classes'] = self.df['wind_speed'].apply(beaufort)
 		self.df['skf_estimation'] = np.nan
 		skf = StratifiedKFold(n_splits=params['n_splits'])
 		for i, (train_index, test_index) in enumerate(skf.split(self.df[self.method['frequency']], self.df.classes)):
-			trainset = self.df.iloc[train_index].dropna(subset = [self.method['frequency'], self.ground_truth])
-			testset = self.df.iloc[test_index].dropna(subset = [self.method['frequency'], self.ground_truth])
+			trainset = self.df.iloc[train_index].dropna(subset = [self.method['frequency'], 'wind_speed'])
+			testset = self.df.iloc[test_index].dropna(subset = [self.method['frequency'], 'wind_speed'])
 			popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), 
-						  trainset[self.ground_truth].to_numpy(), bounds = params['bounds'], maxfev = params['maxfev'])
+						  trainset['wind_speed'].to_numpy(), bounds = params['bounds'], maxfev = params['maxfev'])
 			popt_tot.append(popt)
 			popv_tot.append(popv)
 			estimation = self.method['function'](testset[self.method['frequency']].to_numpy(), *popt)
-			mae.append(metrics.mean_absolute_error(testset[self.ground_truth], estimation))
-			rmse.append(metrics.root_mean_squared_error(testset[self.ground_truth], estimation))
-			r2.append(metrics.r2_score(testset[self.ground_truth], estimation))
-			var.append(np.var(abs(testset[self.ground_truth])-abs(estimation)))
-			std.append(np.std(abs(testset[self.ground_truth])-abs(estimation)))
+			mae.append(metrics.mean_absolute_error(testset['wind_speed'], estimation))
+			rmse.append(metrics.root_mean_squared_error(testset['wind_speed'], estimation))
+			r2.append(metrics.r2_score(testset['wind_speed'], estimation))
+			var.append(np.var(abs(testset['wind_speed'])-abs(estimation)))
+			std.append(np.std(abs(testset['wind_speed'])-abs(estimation)))
 			self.df.loc[testset.index, 'skf_estimation'] = estimation
-		self.popt['skf_fit'] = np.mean(popt_tot, axis=0)
+		self.popt.update({'skf_fit' : np.mean(popt_tot, axis=0)})
 		self.wind_model_stats.update({'skf_mae':np.mean(mae), 'skf_rmse':np.mean(rmse), 'skf_r2':np.mean(r2), 'skf_var':np.mean(var), 'skf_std':np.mean(std)})
 
 
