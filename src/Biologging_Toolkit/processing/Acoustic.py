@@ -252,8 +252,6 @@ class Acoustic(Wrapper):
                 time= self.ds['time'][dive_mask],
                 spectro = spectro,
                 freq = freqs)
-            return spectro, freqs
-
 
 
     def compute_noise_level(self): 
