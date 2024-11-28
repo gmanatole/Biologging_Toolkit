@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import scipy.signal as sg
+import librosa
 import soundfile as sf
 from tqdm import tqdm
 from Biologging_Toolkit.utils.acoustic_utils import *
@@ -61,7 +62,7 @@ class Acoustic(Wrapper):
 
         self.wav_path = wav_path
 
-        self.samplerate = sf.info(glob(os.path.join(self.wav_path, '*wav'))[0]).samplerate		
+        self.samplerate = kwargs['samplerate'] if 'samplerate' in kwargs.keys() else sf.info(glob(os.path.join(self.wav_path, '*wav'))[0]).samplerate
         default = {'window_size' : 1024, 'nfft' : 1024, 'overlap' : 0, 'duration' : 3}
         self.params = {**default, **kwargs}
 
@@ -206,10 +207,14 @@ class Acoustic(Wrapper):
                 file_pos = dive_pos[file_mask]
                 # Fetch data corresponding to one wav file
                 samplerate = sf.info(fn).samplerate
-                data, _ = sf.read(fn, 
+                '''data, _ = sf.read(fn, 
                                   start = int(_time_diffs[file_mask][0]*samplerate),
                                   stop = int((_time_diffs[file_mask][-1]+self.params['duration'])*samplerate),
-                                  dtype = 'float32')
+                                  dtype = 'float32')'''
+                data, _ = librosa.load(fn,
+                                      offset = _time_diffs[file_mask][0],
+                                      duration = _time_diffs[file_mask][-1] + self.params['duration'] - _time_diffs[file_mask][0],
+                                      sr = self.samplerate)
                 data = self.normalize(data)
 
                 for i, pos in enumerate(file_pos) :
@@ -302,7 +307,8 @@ class Acoustic(Wrapper):
             pbar.set_description(f"Computing spectral power for file : {wav_file.split('/')[-1]}")
 
             # Fetch data corresponding to one wav file
-            data, _ = sf.read(wav_file, dtype = 'float32')
+            #data, _ = sf.read(wav_file, dtype = 'float32')
+            data, _ = librosa.load(wav_file, sr = self.samplerate, dtype = 'float32')
             data = self.normalize(data)
             _time_diffs = time_diffs[indices == idx]
             # Read signal at correct timestamp
