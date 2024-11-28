@@ -186,33 +186,34 @@ class Acoustic(Wrapper):
         time_diffs = np.where(indices != -1, self.ds['time'][:].data - self.wav_start_time[indices], np.nan)
         dive_files = self.wav_fns[indices]
         dive_files[indices == -1] = np.nan
-        pbar = tqdm(total = len(self.wav_start_time), leave = True, position = 0)
+        number_dives = len(np.unique(dives))
+        pbar = tqdm(total = number_dives, leave = True, position = 0)
 
         for idx, dive in enumerate(np.unique(dives)) :
 
             pbar.update(1)
             dive_mask = dives == dive
             len_dive = (dive_mask).sum()
-            pbar.set_description(f"Computing spectral power for dive : {idx}/{len_dive}")
-            dive_pos = np.linspace(0, len_dive - 1, len_dive)
-            spectro = np.full((len_dive, Nfreqs), np.nan).astype(int)
+            pbar.set_description(f"Computing spectral power for dive : {idx} with size {len_dive}")
+            dive_pos = np.linspace(0, len_dive - 1, len_dive).astype(int)
+            spectro = np.full((len_dive, Nfreqs), np.nan)
             _time_diffs = time_diffs[dive_mask]
 
             for fn in np.unique(dive_files[dive_mask]) :
-                if np.isnan(fn) :
+                if fn == 'nan' :
                     continue
                 file_mask = dive_files[dive_mask] == fn
                 file_pos = dive_pos[file_mask]
                 # Fetch data corresponding to one wav file
                 samplerate = sf.info(fn).samplerate
                 data, _ = sf.read(fn, 
-                                  start = int(time_diffs[dive_mask][file_mask][0]*samplerate),
-                                  stop = int((time_diffs[dive_mask][file_mask][-1]+self.params['duration'])*samplerate),
+                                  start = int(_time_diffs[file_mask][0]*samplerate),
+                                  stop = int((_time_diffs[file_mask][-1]+self.params['duration'])*samplerate),
                                   dtype = 'float32')
                 data = self.normalize(data)
 
                 for i, pos in enumerate(file_pos) :
-                    sig = data[i * self.samplerate : (i + self.params['duration']) * self.samplerate]
+                    sig = data[i * self.dt * self.samplerate : (i*self.dt + self.params['duration']) * self.samplerate]
                     #Compute the spectrogram for desired duration and with chosen window parameters
                     Sxx = np.full([Nfreqs, Nbwin], np.nan)
                     for idwin in range(Nbwin):
