@@ -44,8 +44,8 @@ class WindLSTM() :
 			ds = nc.Dataset(dep_path)
 			dives = np.unique(ds['dives'][:].data)
 			for dive in dives :
-				if os.path.exists(os.path.join(ac_path, f'{dep}_dive_{int(dive):05d}.npz')):
-					self.fns.append(os.path.join(ac_path, f'{dep}_dive_{int(dive):05d}.npz'))
+				if os.path.exists(os.path.join(ac_path, f'acoustic_dive_{int(dive):05d}.npz')):
+					self.fns.append(os.path.join(ac_path, f'acoustic_dive_{int(dive):05d}.npz'))
 					self.indices.append(idx)
 					self.dives.append(dive)
 					idx+=1
@@ -157,7 +157,7 @@ class LoadDives(utils.data.Dataset) :
 			data = np.load(self.fns[idx])
 			if (data['len_spectro'] < self.seq_length / 15) or (data['len_spectro'] > self.seq_length) :
 				continue
-			if data['wind_speed'][-1] == np.nan :
+			if np.isnan(data[self.variable][-1]) :
 				continue   
 			valid_indices.append(idx)
 		self.indices = np.array(valid_indices)  # Update self.indices with only valid ones
