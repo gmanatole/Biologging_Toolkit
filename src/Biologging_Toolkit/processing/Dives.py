@@ -62,11 +62,11 @@ class Dives(Wrapper):
 		except (FileNotFoundError, pd.errors.EmptyDataError):
 			self.dive_ds = pd.DataFrame([])
 			self.dive_ds.to_csv(self.dive_path, index = None)
-		
+
 		self.up = None
 		self.down = None
 		self.bottom = None
-		
+
 	def __str__(self):
 		return "This class identifies surfacing periods and increments dives."
 
@@ -98,8 +98,8 @@ class Dives(Wrapper):
 		self.dive_ds['begin_time'] = begin_time
 		self.dive_ds['end_time'] = end_time
 		self.dive_ds.to_csv(self.dive_path, index = None)
-		
-		
+
+        
 	def get_depth(self):
 		self.create_variable('depth', self.depth, self.sens_time)
 
