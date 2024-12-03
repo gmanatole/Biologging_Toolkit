@@ -28,13 +28,14 @@ class Wind():
 		*,
 		path : Union[str, List] = None,
 		acoustic_path : Union[str, List] = '',
-        method: str = 'Pensieri',
+		method: str = 'Pensieri',
+		data : str = None,        
 		split_method : str = 'depid',
 		nsplit : float = 0.8,
-		test_depid : Union[str, List] = 'ml21_305b'
+		test_depid : Union[str, List] = 'ml17_280a'
 		):
-		
-		"""		
+
+		"""
 		"""
 		self.depid = depid
 		self.path = path
@@ -47,9 +48,9 @@ class Wind():
 			self.path = [self.path]
 
 		self.method = empirical[method]
-		self.ref = self.depid[0] if len(self.depid) == 1 else split_parameters['test_depid']
+		self.ref = self.depid[0] if len(self.depid) == 1 else test_depid
 
-		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[], 'wind_speed':[]}
+		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[], 'wind_speed':[], data:[]}
 		for dep_path, dep, ac_path in zip(self.path, self.depid, self.acoustic_path) :
 			_df = pd.read_csv(os.path.join(dep_path, f'{dep}_dive.csv'))
 			_df['depid'] = dep
@@ -63,6 +64,7 @@ class Wind():
 				df['end_time'].append(row.end_time)
 				df['depid'].append(row.depid)
 				df['wind_speed'].append(row.wind_speed)
+				df[data].append(row[data]) if data else df[data].append(np.nan)
 		self.df = pd.DataFrame(df)
 
 		if split_method == 'depid':
@@ -98,16 +100,16 @@ class Wind():
 			spl = []
 			dive = Dives(depid, path = self.path[i])
 			if method == 'upwards':
-				mask, down = dive.get_dive_direction(dive.ds['depth'][:].data)
+				mask, down = dive.get_dive_direction(dive.ds['depth'][:].data[::20])
 				mask = resample_boolean_array(mask, len(dive.ds['depth'][:]))
 			elif method == 'downwards':
-				up, mask = dive.get_dive_direction(dive.ds['depth'][:].data)
+				up, mask = dive.get_dive_direction(dive.ds['depth'][:].data[::20])
 				mask = resample_boolean_array(mask, len(dive.ds['depth'][:]))
 			else :
 				mask = True
-			for i, row in dive.dive_ds.iterrows() :
+			for j, row in dive.dive_ds.iterrows() :
 				try :
-					_data = np.load(os.path.join(self.acoustic_path[i], f'{dep}_dive_{int(row.dive):05d}.npz'))
+					_data = np.load(os.path.join(self.acoustic_path[i],f'acoustic_dive_{int(row.dive):05d}.npz'))
 				except FileNotFoundError :
 					spl.append(np.nan)
 					wind_speed.append(np.nan)
