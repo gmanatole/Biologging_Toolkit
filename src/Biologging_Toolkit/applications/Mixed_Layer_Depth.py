@@ -89,10 +89,18 @@ class MixedLayerDepth(Dives) :
 
 		ctd_ds = nc.Dataset(ctd_path)
 		ctd_time = np.array([(datetime(1950,1,1,0,0,0) + timedelta(elem)).replace(tzinfo=timezone.utc).timestamp() for elem in ctd_ds['JULD'][:].data])
-		temp = ctd_ds['TEMP_ADJUSTED'][:].data
-		temp[ctd_ds['TEMP_ADJUSTED'][:].mask] = np.nan
-		sal = ctd_ds['PSAL_ADJUSTED'][:].data
-		sal[ctd_ds['PSAL_ADJUSTED'][:].mask] = np.nan
+		if np.all(ctd_ds['PSAL_ADJUSTED'][:].mask):
+			 sal_var = 'PSAL'
+		else :
+			 sal_var = 'PSAL_ADJUSTED'
+		if np.all(ctd_ds['TEMP_ADJUSTED'][:].mask):
+			 temp_var = 'TEMP'
+		else :
+			 temp_var = 'TEMP_ADJUSTED'			   
+		temp = ctd_ds[temp_var][:].data
+		temp[ctd_ds[temp_var][:].mask] = np.nan
+		sal = ctd_ds[sal_var][:].data
+		sal[ctd_ds[sal_var][:].mask] = np.nan
 		sigma0 = gsw.density.sigma0(sal, temp)
 		ctd_mld = []
 		if variable == 'sigma0' :
@@ -334,3 +342,21 @@ def plot(inst, aux, window_size = 10):
 	plt.grid()
 	plt.show()
 '''
+
+"""depids_with_mld = []
+for depid in depids[-1:] :
+	df = pd.read_csv(os.path.join(path, depid, f'{depid}_dive.csv'))
+	try :
+		if np.all(np.isnan(df.meop_mld.to_numpy())):
+			pass
+		else :
+			continue
+	except AttributeError:
+		pass
+	inst = MixedLayerDepth(depid, path = os.path.join(path, depid))
+	time_mld, mld = inst.ctd_mld(f'D:/individus_brut/MEOP_profiles/meop_{depid}.nc')
+	insert = np.searchsorted(df.end_time, time_mld[(time_mld > df.begin_time.iloc[0]) & (time_mld < df.end_time.iloc[-1])])
+	mld = np.full(len(df), np.nan)
+	mld[insert] = mld[(time_mld > df.begin_time.iloc[0]) & (time_mld < df.end_time.iloc[-1])]
+	df['meop_mld'] = mld
+	df.to_csv(os.path.join(path, depid, f'{depid}_dive.csv'), index = None)"""

@@ -27,7 +27,7 @@ class Wind():
 		depid : Union[str, List],
 		*,
 		path : Union[str, List] = None,
-		acoustic_path : Union[str, List] = '',
+		acoustic_path : Union[str, List] = None,
 		method: str = 'Pensieri',
 		data : str = None,        
 		split_method : str = 'depid',
@@ -39,15 +39,19 @@ class Wind():
 		"""
 		self.depid = depid
 		self.path = path
-		self.acoustic_path = acoustic_path
+		if acoustic_path :
+			self.acoustic_path = acoustic_path
+		else :
+			self.acoustic_path = ['']*len(self.depid)
 		if isinstance(self.depid, List) :
 			assert len(self.depid) == len(self.acoustic_path) and len(self.depid) == len(self.path), "Please provide paths for each depid"
 		else :
 			self.depid = [self.depid]
-			self.acoustic_path = [self.acoustic_path]
 			self.path = [self.path]
 
 		self.method = empirical[method]
+		if data : 
+			self.method['frequency'] = data
 		self.ref = self.depid[0] if len(self.depid) == 1 else test_depid
 
 		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[], 'wind_speed':[], data:[]}
@@ -68,7 +72,9 @@ class Wind():
 		self.df = pd.DataFrame(df)
 
 		if split_method == 'depid':
-			self.train_split, self.test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, test_depid = test_depid)
+			train_split, test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, test_depid = test_depid)
+			self.train_split = train_split[1]
+			self.test_split = test_split[1]
 		else :
 			self.train_split, self.test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, split = nsplit)
 		self.popt, self.wind_model_stats = {}, {}
@@ -89,6 +95,7 @@ class Wind():
 				print(f"{key:<{6}} : {value}")
 			return "To fit your model, please call skf_fit() for example"
 	
+
 	def fetch_data(self, method = 'upwards', aggregation = 'mean', frequency = 5000):
 
 		if aggregation == 'mean' :
@@ -129,7 +136,25 @@ class Wind():
 		self.df['filtered'] = medfilt(self.df[self.method['frequency']], kernel_size = kernel_size)
 		self.method['frequency'] = 'filtered'
 
-	
+	def depid_fit(self, **kwargs) :
+		default = {'scaling_factor':0.2, 'maxfev':25000}
+		params = {**default, **kwargs}
+		if 'bounds' not in params.keys():
+			params['bounds'] = np.hstack((np.array([[value-params['scaling_factor']*abs(value), value+params['scaling_factor']*abs(value)] for value in self.method['parameters'].values()]).T, [[-np.inf],[np.inf]]))
+		trainset = self.df.loc[self.train_split].dropna(subset = ['wind_speed', self.method['frequency']])
+		testset = self.df.loc[self.test_split].dropna(subset = ['wind_speed', self.method['frequency']])
+		popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), trainset['wind_speed'].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
+		estimation = self.method['function'](testset[self.method['frequency']].to_numpy(), *popt)
+		mae = metrics.mean_absolute_error(testset['wind_speed'], estimation)
+		rmse = metrics.root_mean_squared_error(testset['wind_speed'], estimation)
+		r2 = metrics.r2_score(testset['wind_speed'], estimation)
+		var = np.var(abs(testset['wind_speed'])-abs(estimation))
+		std = np.std(abs(testset['wind_speed'])-abs(estimation))
+		self.df.loc[testset.index, 'depid_estimation'] = estimation
+		self.popt.update({'depid_fit' : popt})
+		self.wind_model_stats.update({'depid_mae':mae, 'depid_rmse':rmse, 'depid_r2':r2, 'depid_var':var, 'depid_std':std})
+
+		
 	def temporal_fit(self, **kwargs):
 
 		default = {'split':0.8, 'scaling_factor':0.2, 'maxfev':25000}
@@ -165,10 +190,11 @@ class Wind():
 		mae, rmse, r2, var, std = [], [], [], [], []
 		self.df['classes'] = self.df['wind_speed'].apply(beaufort)
 		self.df['skf_estimation'] = np.nan
+		self.df = self.df.dropna(subset = [self.method['frequency'], 'wind_speed'])
 		skf = StratifiedKFold(n_splits=params['n_splits'])
 		for i, (train_index, test_index) in enumerate(skf.split(self.df[self.method['frequency']], self.df.classes)):
-			trainset = self.df.iloc[train_index].dropna(subset = [self.method['frequency'], 'wind_speed'])
-			testset = self.df.iloc[test_index].dropna(subset = [self.method['frequency'], 'wind_speed'])
+			trainset = self.df.iloc[train_index]
+			testset = self.df.iloc[test_index]
 			popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), 
 						  trainset['wind_speed'].to_numpy(), bounds = params['bounds'], maxfev = params['maxfev'])
 			popt_tot.append(popt)
