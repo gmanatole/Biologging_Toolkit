@@ -19,8 +19,8 @@ def get_timestamp(raw_path) :
 	return timestamps
 
 # Function to read the signal and compute the spectrogram
-def compute_spectrogram(debut, fin, freq_min, freq_max, timestamps):
-    nperseg = 2048
+def compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg = 2048):
+    nperseg = nperseg
     fn = timestamps.fn.to_numpy()[np.argmax(timestamps.begin.to_numpy()[timestamps.begin.to_numpy() - debut < 0])]
     fn_end = timestamps.fn.to_numpy()[np.argmax(timestamps.begin.to_numpy()[timestamps.begin.to_numpy() - fin < 0])]
 
@@ -40,12 +40,12 @@ def compute_spectrogram(debut, fin, freq_min, freq_max, timestamps):
     
     return f, t, Sxx
 
-def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path) :
+def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2048) :
 	debut = debut.replace(tzinfo = timezone.utc).timestamp()
 	fin = fin.replace(tzinfo = timezone.utc).timestamp()
 	# Compute spectrogram
 	timestamps = get_timestamp(raw_path)
-	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps)
+	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg)
 
 	# Initialize the Dash app
 	app = Dash(__name__)
@@ -150,4 +150,4 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path) :
 	    
 		return fig
 
-	app.run_server(debug=False, port = np.random.randint(2000, 65000))
+	app.run_server(debug=False, port = np.random.randint(2000, 65000), mode = 'external')
