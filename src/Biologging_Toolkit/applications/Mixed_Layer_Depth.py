@@ -56,11 +56,11 @@ class MixedLayerDepth(Dives) :
 			self.dive_ds['zn2_down'] = np.array(self.zn2)[:,0]
 		if method == 'meop' :
 			threshold = self.threshold_density if variable == 'sigma0' else self.threshold_temperature
-			time_mld, mld = self.ctd_mld(self.meop_path, variable, threshold)
+			time_mld, mld, gradient = self.ctd_mld(self.meop_path, variable, threshold)
 			indices_mld = np.searchsorted(self.dive_ds.begin_time, time_mld[time_mld < self.dive_ds.end_time.iloc[-1]])
 			final_mld = np.full(len(self.dive_ds), np.nan)
 			final_mld[indices_mld-1] = mld[time_mld < self.dive_ds.end_time.iloc[-1]]
-			self.dive_ds['meop_mld'] = final_mld
+			self.dive_ds['corr_mld'] = final_mld
 		self.dive_ds.to_csv(self.dive_path, index = None)
 		
 	'''
@@ -90,32 +90,39 @@ class MixedLayerDepth(Dives) :
 		ctd_ds = nc.Dataset(ctd_path)
 		ctd_time = np.array([(datetime(1950,1,1,0,0,0) + timedelta(elem)).replace(tzinfo=timezone.utc).timestamp() for elem in ctd_ds['JULD'][:].data])
 		if np.all(ctd_ds['PSAL_ADJUSTED'][:].mask):
-			 sal_var = 'PSAL'
+			sal_var = 'PSAL'
 		else :
-			 sal_var = 'PSAL_ADJUSTED'
+			sal_var = 'PSAL_ADJUSTED'
 		if np.all(ctd_ds['TEMP_ADJUSTED'][:].mask):
-			 temp_var = 'TEMP'
+			temp_var = 'TEMP'
 		else :
-			 temp_var = 'TEMP_ADJUSTED'			   
+			temp_var = 'TEMP_ADJUSTED'
+		temp_var = 'TEMP_ADJUSTED'	
+		sal_var = 'PSAL_ADJUSTED'   
 		temp = ctd_ds[temp_var][:].data
 		temp[ctd_ds[temp_var][:].mask] = np.nan
 		sal = ctd_ds[sal_var][:].data
 		sal[ctd_ds[sal_var][:].mask] = np.nan
 		sigma0 = gsw.density.sigma0(sal, temp)
 		ctd_mld = []
+		gradient_value = []
 		if variable == 'sigma0' :
 			for profile in sigma0:
-			    try :
-			        ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
-			    except ValueError :
-			        ctd_mld.append(np.nan)
+				try :
+					ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
+					gradient_value.append(abs(profile[ctd_mld[-1]] - profile[10]))
+				except ValueError :
+					ctd_mld.append(np.nan)
+					gradient_value.append(np.nan)
 		if variable == 'temperature' :
 			for profile in temp:
-			    try :
-			        ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
-			    except ValueError :
-			        ctd_mld.append(np.nan)
-		return ctd_time, np.array(ctd_mld)
+				try :
+					ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
+					gradient_value.append(abs(profile[ctd_mld[-1]] - profile[10]))
+				except ValueError :
+					ctd_mld.append(np.nan)
+					gradient_value.append(np.nan)
+		return ctd_time, np.array(ctd_mld), np.array(gradient_value)
 
 	@staticmethod
 	def profile_check(depth, profile) :
@@ -210,10 +217,10 @@ class MixedLayerDepth(Dives) :
 
 	def get_wind_correlation(self) :
 		for i in range(24):
-		    df[f'wind_{i}h'] = np.nan
-		    for depid in depids :
-		        wind_interp = interp1d(df[df.ses == depid].end_time, df[df.ses == depid].wind_speed, bounds_error = False)
-		        df[f'wind_{i}h'][df.ses == depid] = wind_interp(df[df.ses == depid].end_time - i*3600)
+			df[f'wind_{i}h'] = np.nan
+			for depid in depids :
+				wind_interp = interp1d(df[df.ses == depid].end_time, df[df.ses == depid].wind_speed, bounds_error = False)
+				df[f'wind_{i}h'][df.ses == depid] = wind_interp(df[df.ses == depid].end_time - i*3600)
 		
 '''import numpy as np
 import xarray as xr
