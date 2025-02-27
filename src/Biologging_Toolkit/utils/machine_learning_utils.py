@@ -1,6 +1,7 @@
 import torch
-from torch import nn
+from torch import nn, utils
 import numpy as np
+from sklearn.neighbors import KernelDensity
 import os
 
 def get_train_test_split(paths, indices, depids, method = 'random_split', test_depid = None, split = 0.8) :
@@ -36,7 +37,9 @@ class WeightedMSELoss(nn.Module):
         self.positive_weight = positive_weight
 
     def forward(self, prediction, target):
-        weights = torch.where(target == 0, self.zero_weight, self.positive_weight)
+        #weights = torch.where(target == 0, self.zero_weight, self.positive_weight)
+        weights = torch.tanh(target/100)**2
+        weights[weights < 0.1] = 0.1
         loss = weights * (prediction - target) ** 2
         return torch.mean(loss)
 
@@ -62,6 +65,61 @@ class Loss_LSTM(nn.Module):
             return torch.sum(torch.stack([loss2(prediction[:,i], target[:,i]) 
                                if var == 'total_precipitation' else loss1(prediction[:,i], target[:,i]) 
                               for i, var in enumerate(self.variables)]))
+
+class MLDDataLoader(utils.data.Dataset):
+    def __init__(self, X, Y, ninputs, model = 'MLP'):
+        self.X = torch.FloatTensor(X)
+        self.Y = torch.FloatTensor(Y)
+        self.ninputs = ninputs
+        self.model = model
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        X = self.X[idx] + torch.normal(0, 0.07, size=(self.X[idx].size(dim=0),1)).squeeze()
+        Y = self.Y[idx] + torch.randint(-10, 10, (1,1)).item()
+        shift = torch.randint(0, 5, (1,1)).item()
+        X = X[self.generate_shift_indices(X.size(dim=0), shift)]
+        if self.model == 'CNN' or 'CNN_LSTM':
+            X = torch.FloatTensor(X).reshape(1, self.ninputs, -1)
+        return X, Y
+
+    def generate_shift_indices(self, N, shift):
+        size_of_data = N // self.ninputs
+        mask = [True] * N
+        for i in range(self.ninputs):
+            mask[i * size_of_data: i * size_of_data + (5 - shift)] = [False]*(5-shift)
+            mask[(i+1) * size_of_data - shift: (i+1) * size_of_data] = [False]*shift
+        return mask
+
+class RegressionDataAugmenter:
+    def __init__(self, X, Y, bandwidth=0.5):
+        self.X = np.array(X)
+        self.Y = np.array(Y)
+        self.bandwidth = bandwidth  # Controls smoothness in KDE
+
+    def augment_data(self, target_size=None):
+        """
+        Oversample underrepresented samples in a regression dataset based on density estimation.
+
+        :param target_size: (Optional) Desired total dataset size after augmentation. If None, doubles the dataset.
+        :return: Augmented dataset (X_aug, Y_aug)
+        """
+        if target_size is None:
+            target_size = int(len(self.X) * 1.5)
+        kde = KernelDensity(bandwidth=self.bandwidth, kernel='gaussian')
+        kde.fit(self.Y.reshape(-1, 1))
+        log_density = kde.score_samples(self.Y.reshape(-1, 1))
+        density = np.exp(log_density)
+        sample_probs = 1 / (density + 1e-6)
+        sample_probs /= sample_probs.sum()
+        num_samples_needed = target_size - len(self.X)
+        augmented_indices = np.random.choice(len(self.X), size=num_samples_needed, p=sample_probs, replace=True)
+        X_aug = np.vstack((self.X, self.X[augmented_indices]))
+        Y_aug = np.hstack((self.Y, self.Y[augmented_indices]))
+        return X_aug, Y_aug
+
 
 #Normalization still required as well as filtering out above depth 10m if wanted
 def preprocess_dive_files(depid, ds, path, fns, variable, supplementary_data, seq_length = 1500) :
@@ -154,3 +212,83 @@ def preprocess_dive_files(depid, ds, path, fns, variable, supplementary_data, se
                  freq = _data['freq'],
                  spectro = np.nan_to_num(spectro),
                  **other_data)
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_sizes=[512, 256, 256], output_size=1):
+        super(MLP, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(input_size, hidden_sizes[0]),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_sizes[0], hidden_sizes[1]),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_sizes[1], hidden_sizes[2]),
+            nn.LeakyReLU(),
+            nn.Linear(hidden_sizes[2], output_size)
+        )
+    def forward(self, x):
+        return self.layers(x)
+
+class CNN(nn.Module):
+    def __init__(self, input_channels=1, num_filters=16, kernel_size=4, output_size=1, ninputs = 4, size = 40):
+        super(CNN, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(in_channels=input_channels, out_channels=num_filters, kernel_size=kernel_size, stride=1, padding=2),
+            nn.LeakyReLU(),
+            nn.Dropout(),
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=kernel_size, stride=1, padding=2),
+            nn.LeakyReLU(),
+            nn.Dropout()
+        )
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, ninputs, size)
+            dummy_output = self.conv_layers(dummy_input)
+            flattened_size = dummy_output.view(1, -1).size(1)
+
+        self.fc_layers = nn.Sequential(
+            nn.Linear(flattened_size, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, output_size)
+        )
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = torch.flatten(x, start_dim=1)
+        x = self.fc_layers(x)
+        return x
+
+
+class CNN_LSTM(nn.Module):
+    def __init__(self, input_channels=1, num_filters=16, kernel_size=4, output_size=1, ninputs=4, size=40,
+                 hidden_dim=128, lstm_layers=1):
+        super(CNN_LSTM, self).__init__()
+
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(in_channels=input_channels, out_channels=num_filters, kernel_size=kernel_size, stride=1,
+                      padding=2),
+            nn.LeakyReLU(),
+            nn.Dropout(),
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=kernel_size, stride=1, padding=2),
+            nn.LeakyReLU(),
+            nn.Dropout()
+        )
+
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, input_channels, ninputs, size)  # Adjusted input shape
+            dummy_output = self.conv_layers(dummy_input)
+            conv_output_shape = dummy_output.shape  # (batch, channels, height, width)
+            flattened_size = conv_output_shape[1] * conv_output_shape[2]  # num_filters * height
+        self.lstm = nn.LSTM(input_size=flattened_size, hidden_size=hidden_dim, num_layers=lstm_layers, batch_first=True)
+        self.fc_layers = nn.Sequential(
+            nn.Linear(hidden_dim, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, output_size)
+        )
+
+    def forward(self, x):
+        batch_size = x.shape[0]
+        x = self.conv_layers(x)
+        x = x.permute(0, 3, 1, 2).contiguous()
+        x = x.view(batch_size, x.shape[1], -1)
+        x, _ = self.lstm(x)
+        x = x[:, -1, :]
+        x = self.fc_layers(x)
+        return x

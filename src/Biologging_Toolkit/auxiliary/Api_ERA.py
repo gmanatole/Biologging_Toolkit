@@ -7,6 +7,7 @@ from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta, timezone
+from scipy.interpolate import interp1d
 from scipy.interpolate import RegularGridInterpolator
 
 #get_epoch_time = lambda x : calendar.timegm(x.timetuple()) if isinstance(x, datetime) else x
@@ -115,8 +116,7 @@ def return_cdsv2(filename, key, variables, years, months, days, hours, area):
 	r.download(filename)
 
 
-from scipy.interpolate import interp1d
-def join_era(depid, path, era_path, value, **kwargs):
+def join_era(depid, path, era_path, value, ref = 'begin_time', **kwargs):
 	default = {'units':'unknown', 'long_name':value}
 	attrs = {**default, **kwargs}
 	era_ds = Dataset(era_path)
@@ -139,9 +139,9 @@ def join_era(depid, path, era_path, value, **kwargs):
 		dive_ds = pd.read_csv(os.path.join(path, depid + '_dive.csv'))
 		lat_interp = interp1d(ds['time'][:].data, ds['lat'][:].data)
 		lon_interp = interp1d(ds['time'][:].data, ds['lon'][:].data)
-		dive_ds['lat'] = lat_interp(dive_ds.begin_time)
-		dive_ds['lon'] = lon_interp(dive_ds.begin_time)
-		dive_ds[value] = interp_era((dive_ds.begin_time, dive_ds.lat, dive_ds.lon))
+		dive_ds['lat'] = lat_interp(dive_ds[ref])
+		dive_ds['lon'] = lon_interp(dive_ds[ref])
+		dive_ds[value] = interp_era((dive_ds[ref], dive_ds.lat, dive_ds.lon))
 		dive_ds.to_csv(os.path.join(path, depid + '_dive.csv'), index = None)
 	except (FileNotFoundError, KeyError):
 		print('No dive dataframe found')

@@ -174,4 +174,9 @@ def get_train_test_split(paths, indices, depids, method = 'random_split', test_d
 	elif method == 'skf':
 		raise NotImplementedError("This method is to be implemented later.")
 	
-	
+def numpy_fill(arr: np.ndarray) -> np.ndarray:
+	""" fills NaN values in a NumPy array with the last non-NaN value above it in the same column. """
+	mask = np.isnan(arr)
+	idx = np.where(~mask, np.arange(arr.shape[0]), 0)
+	np.maximum.accumulate(idx, axis=0, out=idx)
+	return arr[idx]

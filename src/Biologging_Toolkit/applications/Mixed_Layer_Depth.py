@@ -56,11 +56,11 @@ class MixedLayerDepth(Dives) :
 			self.dive_ds['zn2_down'] = np.array(self.zn2)[:,0]
 		if method == 'meop' :
 			threshold = self.threshold_density if variable == 'sigma0' else self.threshold_temperature
-			time_mld, mld, gradient = self.ctd_mld(self.meop_path, variable, threshold)
+			time_mld, mld, gradient, density, temp10 = self.ctd_mld(self.meop_path, variable, threshold)
 			indices_mld = np.searchsorted(self.dive_ds.begin_time, time_mld[time_mld < self.dive_ds.end_time.iloc[-1]])
 			final_mld = np.full(len(self.dive_ds), np.nan)
 			final_mld[indices_mld-1] = mld[time_mld < self.dive_ds.end_time.iloc[-1]]
-			self.dive_ds['corr_mld'] = final_mld
+			self.dive_ds['mld'] = final_mld
 		self.dive_ds.to_csv(self.dive_path, index = None)
 		
 	'''
@@ -97,32 +97,35 @@ class MixedLayerDepth(Dives) :
 			temp_var = 'TEMP'
 		else :
 			temp_var = 'TEMP_ADJUSTED'
-		temp_var = 'TEMP_ADJUSTED'	
-		sal_var = 'PSAL_ADJUSTED'   
 		temp = ctd_ds[temp_var][:].data
 		temp[ctd_ds[temp_var][:].mask] = np.nan
 		sal = ctd_ds[sal_var][:].data
 		sal[ctd_ds[sal_var][:].mask] = np.nan
 		sigma0 = gsw.density.sigma0(sal, temp)
-		ctd_mld = []
-		gradient_value = []
+		ctd_mld, gradient_value, density_value, temp10 = [], [], [], []
 		if variable == 'sigma0' :
-			for profile in sigma0:
+			for i, profile in enumerate(sigma0):
 				try :
 					ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
-					gradient_value.append(abs(profile[ctd_mld[-1]] - profile[10]))
+					gradient_value.append(abs(profile[ctd_mld[-1]] - profile[ctd_mld[-1]-1]))
+					density_value.append(profile[ctd_mld[-1]])
+					temp10.append(temp[i,10])
 				except ValueError :
 					ctd_mld.append(np.nan)
 					gradient_value.append(np.nan)
+					density_value.append(np.nan)
+					temp10.append(np.nan)
 		if variable == 'temperature' :
 			for profile in temp:
 				try :
 					ctd_mld.append(np.min(np.where(abs(profile[11:] - profile[10]) > threshold))+11)
 					gradient_value.append(abs(profile[ctd_mld[-1]] - profile[10]))
+					temp10.append(profile[10])
 				except ValueError :
 					ctd_mld.append(np.nan)
 					gradient_value.append(np.nan)
-		return ctd_time, np.array(ctd_mld), np.array(gradient_value)
+					temp10.append(np.nan)
+		return ctd_time, np.array(ctd_mld), np.array(gradient_value), np.array(density_value), np.array(temp10)
 
 	@staticmethod
 	def profile_check(depth, profile) :

@@ -9,6 +9,12 @@ from scipy.signal import spectrogram
 import plotly.graph_objects as go
 from Biologging_Toolkit.utils.inertial_utils import *
 from Biologging_Toolkit.utils.format_utils import *
+import matplotlib.pyplot as plt
+plt.rcParams.update({
+    "text.usetex": True,                # Enable LaTeX text rendering
+    "font.family": "serif",             # Use a serif font
+    "font.serif": ["Computer Modern"],  # Set font to Computer Modern (LaTeX default)
+})
 
 def get_timestamp(raw_path) :
 	swv_fns = np.array(glob(os.path.join(raw_path, '*wav')))
@@ -19,8 +25,7 @@ def get_timestamp(raw_path) :
 	return timestamps
 
 # Function to read the signal and compute the spectrogram
-def compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg = 2048):
-    nperseg = nperseg
+def compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg = 2048, noverlap = 512):
     fn = timestamps.fn.to_numpy()[np.argmax(timestamps.begin.to_numpy()[timestamps.begin.to_numpy() - debut < 0])]
     fn_end = timestamps.fn.to_numpy()[np.argmax(timestamps.begin.to_numpy()[timestamps.begin.to_numpy() - fin < 0])]
 
@@ -34,18 +39,18 @@ def compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg = 20
         sig, fs = sf.read(fn, start=int(start * sr))
         sig1, fs = sf.read(fn_end, stop = int(stop * sr))
         sig = np.concatenate((sig, sig1))
-    f, t, Sxx = spectrogram(sig, fs, nperseg=nperseg)
+    f, t, Sxx = spectrogram(sig, fs, nperseg=nperseg, noverlap = noverlap)
     Sxx = Sxx[np.sum(f <= freq_min): np.sum(f <= freq_max)]
     f = f[np.sum(f <= freq_min): np.sum(f <= freq_max)]
     
     return f, t, Sxx
 
-def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2048) :
+def interactive_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2048, noverlap = 512, server = 2200) :
 	debut = debut.replace(tzinfo = timezone.utc).timestamp()
 	fin = fin.replace(tzinfo = timezone.utc).timestamp()
 	# Compute spectrogram
 	timestamps = get_timestamp(raw_path)
-	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg)
+	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg, noverlap)
 
 	# Initialize the Dash app
 	app = Dash(__name__)
@@ -116,10 +121,10 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2
 			))
 
 		fig.update_layout(
-			title='Spectrogram with variables overlapped',
-			xaxis_title='Time [s]',
+			title=r'Spectrogram with variables overlapped',
+			xaxis_title=r'Time [s]',
 			yaxis=dict(
-			    title='Frequency [Hz]',
+			    title=r'Frequency [Hz]',
 			    side='left'
 			),
 		coloraxis_colorbar=dict(title='Power [dB]'),
@@ -150,4 +155,32 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2
 	    
 		return fig
 
-	app.run_server(debug=False, port = np.random.randint(2000, 65000), mode = 'external')
+	app.run_server(debug=False, port = server, mode = 'external')
+
+def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2048, noverlap = 512, save = False, **kwargs):
+	orig = {'figsize': (15,15),
+		'title': 'Spectrogram',
+		'y-label': 'Frequency (Hz)',
+		'x-label': 'Time (s)',
+		'path':'.',
+		'aspect':'equal'}
+	params = {**orig, **kwargs}
+	debut = debut.replace(tzinfo = timezone.utc).timestamp()
+	fin = fin.replace(tzinfo = timezone.utc).timestamp()
+	# Compute spectrogram
+	timestamps = get_timestamp(raw_path)
+	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg, noverlap)
+
+	fig, ax = plt.subplots(figsize = params['figsize'])
+	ax.imshow(np.log10(Sxx), origin='lower', aspect = params['aspect'], extent=[t[0], t[-1], f[0], f[-1]])
+	ax.set_xticks(np.linspace(t[0], t[-1], num=6)) 
+	ax.set_xticklabels([f"{tick:.1f}" for tick in np.linspace(0, fin-debut, num=6)]) 
+	ax.set_yticks(np.linspace(f[0], f[-1], num=6))
+	ax.set_yticklabels([f"{tick:.0f}" for tick in np.linspace(f[0], f[-1], num=6)])
+	ax.set_ylabel(params['y-label'])
+	ax.set_xlabel(params['x-label'])
+	ax.set_title(params['title'])
+	fig.tight_layout()
+	if save:
+		fig.savefig(os.path.join(params['path'], f'{params['title']}.pdf'), bbox_inches='tight',pad_inches = 0.1)
+	fig.show()
