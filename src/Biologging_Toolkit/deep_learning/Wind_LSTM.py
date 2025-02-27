@@ -19,13 +19,15 @@ class WindLSTM() :
 			  *,
 			  variable : str = 'wind_speed',
 			  dataloader = 'preprocessed',  
-			  supplementary_data = []
-              ) :
+			  supplementary_data = [],
+			  test_depid = None
+			  ) :
 
 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 		self.model_params = model_params
 		self.variable = variable
-      
+		if not test_depid :
+			test_depid = split_parameters['test_depid']
 		# Load data
 		self.depid = depid
 		if isinstance(self.depid, List) :
@@ -34,7 +36,7 @@ class WindLSTM() :
 			self.depid = [self.depid]
 			acoustic_path = [acoustic_path]
 			path = [path]
-		self.ref = self.depid[0] if len(self.depid) == 1 else split_parameters['test_depid']
+		self.ref = self.depid[0] if len(self.depid) == 1 else test_depid
 		self.fns = []
 		self.indices = []
 		self.depids = []
@@ -51,7 +53,7 @@ class WindLSTM() :
 					idx+=1
 					self.depids.append(dep)
 		self.fns, self.indices, self.depids, self.dives = np.array(self.fns), np.array(self.indices), np.array(self.depids), np.array(dives)
-		self.train_split, self.test_split = get_train_test_split(self.fns, self.indices, self.depids, method = split_parameters['method'], test_depid = split_parameters['test_depid'])
+		self.train_split, self.test_split = get_train_test_split(self.fns, self.indices, self.depids, method = split_parameters['method'], test_depid = test_depid)
 
 		self.num_epochs = hyperparameters['num_epochs']
 		self.batch_size = hyperparameters['batch_size']
@@ -184,6 +186,11 @@ class LoadDives(utils.data.Dataset) :
 			elif (other_input == 'bank_angle') or (other_input == 'azimuth') :
 				_data = (_data + np.pi) / (2*np.pi)
 			elif other_input == 'depth' :
+				_data = _data / 1300
+			elif other_input == 'bathymetry' :
+				_data = - _data / 6000
+				_data[_data < 0] = 0
+			elif other_input == 'distance_to_coast' :
 				_data = _data / 1300
 			spectro = torch.cat((spectro, torch.Tensor(_data).unsqueeze(1)), dim = 1)
             

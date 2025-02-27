@@ -2,7 +2,7 @@ split_parameters = {
     'method' : 'depid',   #'depid', 'random_split', 'temporal_split' or 'skf'
     'split' : 0.8,    # Fraction of data used for training set. Selected randomly or in temporal order.
     'n_splits' : 5,   # Number of splits for skf split
-    'test_depid' : ['ml21_305b', 'ml21_295a']  # Depid used as testing set
+    'test_depid' : 'ml19_293a'  # Depid used as testing set
 }
 
 normalization = {
@@ -11,7 +11,7 @@ normalization = {
 }
 
 model_params = {
-    'input_size' : 517,
+    'input_size' : 513,
     'hidden_size' : 1024
 }
 

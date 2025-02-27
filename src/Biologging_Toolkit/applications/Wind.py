@@ -95,6 +95,8 @@ class Wind():
 			agg = np.nanmean
 		elif aggregation == 'median' :
 			agg = np.nanmedian
+		elif aggregation == 'max':
+			agg = lambda x : np.mean(np.sort(x)[-50:])
 		for i, depid in enumerate(self.depid) :
 			wind_speed = []
 			spl = []
