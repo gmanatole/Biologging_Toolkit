@@ -3,7 +3,8 @@ from scipy.optimize import curve_fit, Bounds
 from Biologging_Toolkit.wrapper import Wrapper
 from sklearn.model_selection import StratifiedKFold
 import pandas as pd
-
+from glob import glob
+import os
 
 class Speed(Wrapper) :
 
@@ -11,8 +12,8 @@ class Speed(Wrapper) :
 			  depid, 
 			  *, 
 			  path, 
-			  threshold = 20,
-			  freq = 60
+			  freq_min = 60,
+			  freq_max = 80
 			  ):
 		
 		"""
@@ -25,8 +26,8 @@ class Speed(Wrapper) :
 			depid,
 			path
         )
-		self.freq = freq
-		self.threshold = threshold
+		self.freq_min = freq_min
+		self.freq_max = freq_max
 
 	def __call__(self, acoustic = True, overwrite = False) :
 		self.forward(acoustic, overwrite)
@@ -74,11 +75,19 @@ class Speed(Wrapper) :
 		speed = dP / np.sin(angle[:-1]) / self.ds.sampling_rate
 		self.inertial_speed = np.append(speed, speed[-1])
 		
+	def fetch_acoustic(self, acoustic_path, overwrite = False):
+		fns = np.sort(glob(os.path.join(acoustic_path, '*')))
+		freq_min_idx = np.argmin(abs(np.load(fns[0])['freq'] - self.freq_min))
+		freq_max_idx = np.argmin(abs(np.load(fns[0])['freq'] - self.freq_max))
+		acoustic = []
+		for fn in fns:
+			acoustic.extend(np.nanmedian(np.load(fn)['spectro'][:, freq_min_idx:freq_max_idx+1], axis=1))
+		metadata = {'long_name':'Acoustic data for speed estimation', 'units':'dB re 1uPa', 'freq_min':self.freq_min, 'freq_max':self.freq_max}
+		self.create_variable('AFS', acoustic, self.ds['time'][:], overwrite=overwrite, **metadata)
 
 	def from_acoustic(self):
-		
-		freq_idx = np.argmin(abs(self.ds['frequency_spectrogram'][:] - self.freq))
-		noise_level = self.ds['spectrogram'][:, freq_idx].data
+
+		noise_level = self.ds['AFS'][:].data
 		
 		if 'inertial_speed' not in dir(self) :
 			self.from_inertial()
@@ -86,34 +95,52 @@ class Speed(Wrapper) :
 		def func(x, a, b, c): 
 			return a*x**2+b*x+c
 			
-		depth = [self.threshold,np.inf]  
-		classes = pd.cut(self.inertial_speed, bins=5, labels = [1,2,3,4,5]).to_numpy()
-		
-		mask_nan = (~np.isnan(classes)) & (~np.isnan(noise_level))
-		
+		#classes = pd.cut(self.inertial_speed, bins=5, labels = [1,2,3,4,5]).to_numpy()
+		#mask_nan = (~np.isnan(classes)) & (~np.isnan(noise_level))
+		mask_nan = (~np.isnan(self.inertial_speed) & ~np.isnan(noise_level))
 		acoustic_speed = np.full(len(noise_level), np.nan)
 
-		mask_angle = self.ds['elevation_angle'][:].data < 0
+		mask_angle = self.ds['elevation_angle'][:].data <= -0.2
 		mask = mask_angle & mask_nan
-		skf = StratifiedKFold(n_splits=5)
+		popt, popv = curve_fit(func, noise_level[mask], self.inertial_speed[mask], maxfev=25000)
+		acoustic_speed[mask_angle] = func(noise_level[mask_angle], *popt)
+
+		mask_angle = abs(self.ds['elevation_angle'][:].data) < 0.2
+		mask = mask_angle & mask_nan
+		popt, popv = curve_fit(func, noise_level[mask], self.inertial_speed[mask], maxfev=25000)
+		acoustic_speed[mask_angle] = func(noise_level[mask_angle], *popt)
+
+		mask_angle = self.ds['elevation_angle'][:].data >= 0.2
+		mask = mask_angle & mask_nan
+		popt, popv = curve_fit(func, noise_level[mask], self.inertial_speed[mask], maxfev=25000)
+		acoustic_speed[mask_angle] = func(noise_level[mask_angle], *popt)
+		self.acoustic_speed = acoustic_speed
+
+		"""skf = StratifiedKFold(n_splits=5)
 		neg_params = []
 		for i, (train_index, test_index) in enumerate(skf.split(noise_level[mask], classes[mask])):
 			popt, popv = curve_fit(func, noise_level[mask][train_index], self.inertial_speed[mask][train_index], maxfev = 25000)
-			estimation = func(noise_level[mask][test_index], *popt)
+			acoustic_speed[mask][test_index] = func(noise_level[mask][test_index], *popt)
 			neg_params.append(popt)
 		self.neg_params = np.mean(neg_params, axis = 0)
-		acoustic_speed[mask] = func(noise_level[mask], *self.neg_params)
 
-				  
-		mask_angle = self.ds['elevation_angle'][:].data >= 0
+		mask_angle = abs(self.ds['elevation_angle'][:].data) < 0.2
 		mask = mask_angle & mask_nan
 		skf = StratifiedKFold(n_splits=5)
 		pos_params = []
 		for i, (train_index, test_index) in enumerate(skf.split(noise_level[mask], classes[mask])):
 			popt, popv = curve_fit(func, noise_level[mask][train_index], self.inertial_speed[mask][train_index], maxfev = 25000)
-			estimation = func(noise_level[mask][test_index], *popt)
+			acoustic_speed[mask][test_index] = func(noise_level[mask][test_index], *popt)
 			pos_params.append(popt)
 		self.pos_params = np.mean(pos_params, axis = 0)
-		acoustic_speed[mask] = func(noise_level[mask], *self.pos_params)
 
-		self.acoustic_speed = acoustic_speed
+		mask_angle = self.ds['elevation_angle'][:].data >= 0.2
+		mask = mask_angle & mask_nan
+		skf = StratifiedKFold(n_splits=5)
+		pos_params = []
+		for i, (train_index, test_index) in enumerate(skf.split(noise_level[mask], classes[mask])):
+			popt, popv = curve_fit(func, noise_level[mask][train_index], self.inertial_speed[mask][train_index], maxfev = 25000)
+			acoustic_speed[mask][test_index] = func(noise_level[mask][test_index], *popt)
+			pos_params.append(popt)
+		self.pos_params = np.mean(pos_params, axis = 0)"""
+
