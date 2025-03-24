@@ -20,7 +20,9 @@ class WindLSTM() :
 			  variable : str = 'wind_speed',
 			  dataloader = 'preprocessed',  
 			  supplementary_data = [],
-			  test_depid = None
+			  test_depid = None,
+			  fine_tune = False,
+			  model_path = None
 			  ) :
 
 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -64,18 +66,30 @@ class WindLSTM() :
                               1,
                               1).to(self.device)
 
-		self.trainloader = utils.data.DataLoader(LoadDives(self.train_split,
+		self.trainloader = utils.data.DataLoader(LoadDives(self.depid, self.train_split,
                                                               self.variable, 
                                                               supplementary_data), 
                                                      self.batch_size, shuffle = True)
-		self.testloader = utils.data.DataLoader(LoadDives(self.test_split,
-                                                             self.variable,
+		if self.depid in ['ml17_280a', 'ml18_294b', 'ml18_296a'] :
+			variable = 'wind_speed'
+		else :
+			variable = self.variable
+		self.testloader = utils.data.DataLoader(LoadDives(self.depid, self.test_split,
+                                                             variable,
                                                              supplementary_data), 
                                                     self.batch_size)
         
 		self.criterion = nn.MSELoss()
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay = self.weight_decay)
-                
+
+		if fine_tune == True :
+			self.model.load_state_dict(torch.load('/home4/datahome/agrosmar/weights_inert/ml19_293a_517', weights_only=True))
+			for name, layer in self.model.named_children():
+				if name == 'fc3' :
+					for param in layer.parameters():
+						param.requires_grad = False
+			self.optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()),lr=self.learning_rate, weight_decay = self.weight_decay)
+
 		self.train_loss = []        
 		self.train_accuracy = []
 		self.test_accuracy = []
@@ -106,6 +120,7 @@ class WindLSTM() :
                 
 			self.train_accuracy.append(np.mean(acc_batch))
 			self.train_loss.append(np.mean(loss_batch))
+			torch.save(self.model.state_dict(), f"{epoch}_{self.ref}_{self.model_params['input_size']}")
 			self.test(epoch)
 			self.model.train()
 
@@ -148,7 +163,7 @@ class LoadDives(utils.data.Dataset) :
 
 	seq_length = 800
 
-	def __init__(self, split, variable, supplementary_data) :
+	def __init__(self, depid, split, variable, supplementary_data) :
 		self.variable = variable
 		self.fns = split[0]
 		self.other_inputs = supplementary_data
@@ -157,10 +172,15 @@ class LoadDives(utils.data.Dataset) :
 		valid_indices = []
 		for idx in range(len(self.fns)):
 			data = np.load(self.fns[idx])
+			if depid in ['ml17_280a', 'ml18_294b', 'ml18_296a'] :
+				valid_indices.append(idx)
+				continue
 			if (data['len_spectro'] < self.seq_length / 15) or (data['len_spectro'] > self.seq_length) :
 				continue
 			if np.isnan(data[self.variable][-1]) :
-				continue   
+				continue  
+			if data[self.variable][-1]] <= 0 :
+				continue
 			valid_indices.append(idx)
 		self.indices = np.array(valid_indices)  # Update self.indices with only valid ones
 

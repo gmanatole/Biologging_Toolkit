@@ -11,7 +11,7 @@ normalization = {
 }
 
 model_params = {
-    'input_size' : 513,
+    'input_size' : 517,
     'hidden_size' : 1024
 }
 
