@@ -70,7 +70,8 @@ def get_start_date_xml(path) :
 
 def get_xml_columns(path, **kwargs) :
 	"""
-	Enter path and dictionary containing keys (must be column name from d3sensordefs file) and values for thoses keys
+	Enter a xml path and dictionary containing keys (must be column name from d3sensordefs file) and values for those keys
+	For instance add as argument cal='acc', qualifier2='d4' if you want DTAG4 accelerometer data.
 	"""
 	ds = pd.read_csv(SES_PATH.xml_data_columns)
 	values = {**kwargs}
@@ -94,8 +95,8 @@ def get_boundaries_metadata(path) :
 	This data can then be used to download ERA
 	"""
 	ds = nc.Dataset(path)
-	time_min = datetime.fromtimestamp(np.nanmin(ds['time'][:])).replace(minute = 0, second = 0)
-	time_max = datetime.fromtimestamp(np.nanmax(ds['time'][:]))
+	time_min = datetime.fromtimestamp(np.nanmin(ds['time'][:])).replace(tzinfo=timezone.utc).replace(minute = 0, second = 0)
+	time_max = datetime.fromtimestamp(np.nanmax(ds['time'][:])).replace(tzinfo=timezone.utc)
 	time_max = time_max.replace(hour=time_max.hour+1, minute = 0, second = 0)
 	print('Dataset begins at ', time_min)
 	print('and ends at       ', time_max)
