@@ -1,0 +1,9 @@
+# Ignorer les fichiers Python compilés
+__pycache__/
+*.pyc
+
+# Ignorer les fichiers de configuration spécifiques à l'utilisateur
+.env
+
+# Ignorer les fichiers de log
+*.log

@@ -24,7 +24,8 @@ def make_cds_file(personnal_access_token, path):
 	os.system(cmd1)
 	os.system(cmd2)
 	'''
-	cmd1 = "echo url: https://cds-beta.climate.copernicus.eu/api >> .cdsapirc"
+	# cmd1 = "echo url: https://cds-beta.climate.copernicus.eu/api >> .cdsapirc"
+	cmd1 = "echo url: https://cds.climate.copernicus.eu/api >> .cdsapirc"
 	cmd2 = "echo key: {} >> .cdsapirc".format(personnal_access_token)
 	os.system(cmd1)
 	os.system(cmd2)
@@ -53,7 +54,8 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 			                                                         area[3], area[1]))
 	filename = filename + '.zip'
 
-	c = cdsapi.Client()
+	# c = cdsapi.Client(verify=False)
+	c = cdsapi.Client(verify=False)
 
 	if days == 'all':
 		days = ['01', '02', '03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31']
@@ -77,7 +79,6 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 		}
 
 	c.retrieve(dataset, request, filename)
-
 
 def return_cdsv2(filename, key, variables, years, months, days, hours, area):
 
