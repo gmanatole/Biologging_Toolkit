@@ -214,6 +214,7 @@ class MixedLayerDepth(Dives) :
 						_zn2_temp = _depth[step]
 						break
 				_zn2.append(_zn2_temp)
+			self.zn_time.append(inst.dive_ds)
 			self.zn2.append(_zn2)
 			self.zn1.append(_zn1)
 
