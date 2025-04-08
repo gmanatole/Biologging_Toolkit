@@ -42,7 +42,7 @@ class Wind():
 		self.depid = depid
 		self.path = path
 		if acoustic_path :
-			self.acoustic_path = acoustic_path
+			self.acoustic_path = [acoustic_path]
 		else :
 			self.acoustic_path = ['']*len(self.depid)
 		if isinstance(self.depid, List) :
@@ -62,8 +62,8 @@ class Wind():
 			_df = pd.read_csv(os.path.join(dep_path, f'{dep}_dive.csv'))
 			_df['depid'] = dep
 			for i, row in _df.iterrows() :
-				if os.path.exists(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz')):
-					df['fns'].append(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz'))
+				if os.path.exists(os.path.join(ac_path, f'acoustic_dive_{int(row.dive):05d}.npz')):
+					df['fns'].append(os.path.join(ac_path, f'acoustic_dive_{int(row.dive):05d}.npz'))
 				else :
 					df['fns'].append('N/A')
 				df['dive'].append(row.dive)
