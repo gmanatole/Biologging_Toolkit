@@ -39,7 +39,7 @@ class WeightedMSELoss(nn.Module):
     def forward(self, prediction, target):
         #weights = torch.where(target == 0, self.zero_weight, self.positive_weight)
         #weights = torch.tanh(target/100)**2
-	weights = 1 - 10 / (torch.pi * 2 * 3) * torch.exp(-(target - 10)**2/(2*3**2))
+        weights = 1 - 10 / (torch.pi * 2 * 3) * torch.exp(-(target - 10)**2/(2*3**2))
         #weights[weights < 0.1] = 0.1
         loss = weights * (prediction - target) ** 2
         return torch.mean(loss)

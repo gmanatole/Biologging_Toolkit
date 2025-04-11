@@ -19,6 +19,7 @@ class WindLSTM() :
 			  *,
 			  variable : str = 'wind_speed',
 			  dataloader = 'preprocessed',  
+			  loss = 'normal',
 			  supplementary_data = [],
 			  test_depid = None,
 			  fine_tune = False,
@@ -70,20 +71,23 @@ class WindLSTM() :
                                                               self.variable, 
                                                               supplementary_data), 
                                                      self.batch_size, shuffle = True)
-		if self.depid in ['ml17_280a', 'ml18_294b', 'ml18_296a'] :
+		if test_depid in ['ml17_280a', 'ml18_294b', 'ml18_296a'] :
 			variable = 'wind_speed'
 		else :
 			variable = self.variable
-		self.testloader = utils.data.DataLoader(LoadDives(self.depid, self.test_split,
+		self.testloader = utils.data.DataLoader(LoadDives(test_depid, self.test_split,
                                                              variable,
                                                              supplementary_data), 
                                                     self.batch_size)
         
-		self.criterion = nn.MSELoss()
+		if loss == 'weighted': 
+			self.criterion = WeightedMSELoss()
+		else :
+			self.criterion = nn.MSELoss()
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay = self.weight_decay)
 
 		if fine_tune == True :
-			self.model.load_state_dict(torch.load('/home4/datahome/agrosmar/weights_inert/ml19_293a_517', weights_only=True))
+			self.model.load_state_dict(torch.load(model_path, weights_only=True))
 			for name, layer in self.model.named_children():
 				if name == 'fc3' :
 					for param in layer.parameters():
@@ -158,7 +162,6 @@ class WindLSTM() :
 		np.savez('current_epoch', train_loss = self.train_loss, test_loss = self.test_loss, accuracy = self.test_accuracy, preds = self.all_preds, labels = self.all_labels, train = self.train_split[0], test = self.test_split[0])  
 
 
-
 class LoadDives(utils.data.Dataset) :
 
 	seq_length = 800
@@ -172,15 +175,24 @@ class LoadDives(utils.data.Dataset) :
 		valid_indices = []
 		for idx in range(len(self.fns)):
 			data = np.load(self.fns[idx])
-			if depid in ['ml17_280a', 'ml18_294b', 'ml18_296a'] :
-				valid_indices.append(idx)
+			#if depid in ['ml17_280a', 'ml18_294b', 'ml18_296a'] :
+			#	valid_indices.append(idx)
+			#	continue
+			if self.variable == 'cfosat' :
+				if 1 not in data['cfosat_quality'] :
+					continue
+				if (data[self.variable] >= 0).sum() <= 0 :
+					continue
+				if np.isnan(np.nanmean(data['cfosat'][(data['cfosat'] > 0) & (data['cfosat_quality'] == 1)])) :
+					continue
+			if np.isnan(np.nanmean(data[self.variable])) :
 				continue
 			if (data['len_spectro'] < self.seq_length / 15) or (data['len_spectro'] > self.seq_length) :
 				continue
-			if np.isnan(data[self.variable][-1]) :
+			if np.isnan(data[self.variable]).all() :
 				continue  
-			if data[self.variable][-1]] <= 0 :
-				continue
+			#if data[self.variable][-1] <= 0 :
+			#	continue
 			valid_indices.append(idx)
 		self.indices = np.array(valid_indices)  # Update self.indices with only valid ones
 
@@ -220,7 +232,12 @@ class LoadDives(utils.data.Dataset) :
 		if len(spectro) < self.seq_length:
 			spectro = torch.cat((torch.zeros(self.seq_length-len(spectro), spectro.size(1)), spectro))
 
-		_label = data[self.variable][-1]
+		_label = data[self.variable]
+		if self.variable == 'cfosat':
+			_label = np.nanmean(_label[(_label > 0) & (data['cfosat_quality'] == 1)])
+		else :
+			_label = np.nanmean(_label)
+		#_label = data[self.variable][-1]
 		return torch.nan_to_num(spectro), torch.tensor(_label, dtype=torch.float)
 
 
