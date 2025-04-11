@@ -8,6 +8,8 @@ def logarithmic(x, a, b, offset):
 def quadratic(x, a, b, c, offset):
     return a * (x - offset) ** 2 + b * (x - offset) + c
 
+def linear(x, a, b, offset):
+    return a * (x-offset) + b
 
 empirical = {
     "Hildebrand": {
@@ -22,4 +24,11 @@ empirical = {
         "averaging_duration": 4.5,
         "parameters": {"a": 0.044642, "b": -3.2917, "c": 63.016},
     },
+    "Pensieri_low": {
+        "frequency": 8000,
+        "function": linear,
+        "averaging_duration": 4.5,
+        "parameters": {"a": 0.1458, "b": -3.146},
+    },
+
 }

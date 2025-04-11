@@ -2,11 +2,12 @@ import netCDF4 as nc
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from glob import glob
+import os
 from scipy.interpolate import interp1d
 from Biologging_Toolkit.utils.inertial_utils import *
 from Biologging_Toolkit.utils.format_utils import *
 from Biologging_Toolkit.wrapper import Wrapper
-import pdb
 
 
 class Inertial(Wrapper):
@@ -85,7 +86,7 @@ class Inertial(Wrapper):
 			self.M, self.A, self.P = data['M'], data['A'], data['P']
 			self.inertial_time = data['time']
 			self.samplerate = self.inertial_time[1]-self.inertial_time[0]
-
+		self.raw_path = raw_path
 		self.declination = declination   #Fetch declination data in existing dataframe
 		self.flip = flip #Correct axis orientation to fit with NED system used by equations in rest of code
 		self.ponderation = ponderation    #Ponderation method for heading reconstruction (speed also possible, any other str will lead to no ponderation)
@@ -297,7 +298,6 @@ class Inertial(Wrapper):
 		self.rotation = modulo_pi(self.rotation)
 		
 		self.change_axes()   #Switch axes back to default
-
 
 	def change_axes(self):
 		self.A[0] = self.flip[0][0] * self.A[0]

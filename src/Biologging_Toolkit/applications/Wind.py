@@ -10,6 +10,7 @@ from scipy.optimize import curve_fit
 from scipy.signal import medfilt
 import sklearn.metrics as metrics
 import pandas as pd
+import os
 from glob import glob
 from tqdm import tqdm
 
@@ -29,10 +30,11 @@ class Wind():
 		path : Union[str, List] = None,
 		acoustic_path : Union[str, List] = None,
 		method: str = 'Pensieri',
-		data : str = None,        
+		data : str = None,
 		split_method : str = 'depid',
 		nsplit : float = 0.8,
-		test_depid : Union[str, List] = 'ml17_280a'
+		test_depid : Union[str, List] = 'ml17_280a',
+		ground_truth = 'wind_speed'
 		):
 
 		"""
@@ -40,7 +42,7 @@ class Wind():
 		self.depid = depid
 		self.path = path
 		if acoustic_path :
-			self.acoustic_path = acoustic_path
+			self.acoustic_path = [acoustic_path]
 		else :
 			self.acoustic_path = ['']*len(self.depid)
 		if isinstance(self.depid, List) :
@@ -49,6 +51,7 @@ class Wind():
 			self.depid = [self.depid]
 			self.path = [self.path]
 
+		self.ground_truth = ground_truth
 		self.method = empirical[method]
 		if data : 
 			self.method['frequency'] = data
@@ -59,15 +62,15 @@ class Wind():
 			_df = pd.read_csv(os.path.join(dep_path, f'{dep}_dive.csv'))
 			_df['depid'] = dep
 			for i, row in _df.iterrows() :
-				if os.path.exists(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz')):
-					df['fns'].append(os.path.join(ac_path, f'{dep}_dive_{int(row.dive):05d}.npz'))
+				if os.path.exists(os.path.join(ac_path, f'acoustic_dive_{int(row.dive):05d}.npz')):
+					df['fns'].append(os.path.join(ac_path, f'acoustic_dive_{int(row.dive):05d}.npz'))
 				else :
 					df['fns'].append('N/A')
 				df['dive'].append(row.dive)
 				df['begin_time'].append(row.begin_time)
 				df['end_time'].append(row.end_time)
 				df['depid'].append(row.depid)
-				df['wind_speed'].append(row.wind_speed)
+				df['wind_speed'].append(row[ground_truth])
 				df[data].append(row[data]) if data else df[data].append(np.nan)
 		self.df = pd.DataFrame(df)
 
@@ -212,4 +215,53 @@ class Wind():
 		self.wind_model_stats.update({'skf_mae':np.mean(mae), 'skf_rmse':np.mean(rmse), 'skf_r2':np.mean(r2), 'skf_var':np.mean(var), 'skf_std':np.mean(std)})
 
 
+	def two_regime(self, func1, func2, bounds, threshold=0.17, variable=8000, train_method='skf_fit'):
+		"""
+		Method to apply a two regime model to acoustic data.
+		func1 and bounds[0] are applied to data under the defined threshold quantile.
+		func2 and bounds[1] are applied to data above the defined threshold quantile.
+		train_method : 'skf_fit' or 'temporal_fit' depending on fitting protocol.
+		"""
+		_df = self.df
+		met = train_method.split('_')[0]
+		_df[f'{met}_estimation'] = np.nan
+		_train_split = self.train_split
+		_test_split = self.test_split
+		idx = np.where(_df[variable] >= threshold)[0]
+
+		self.train_split = list(set(_train_split) & set(idx))
+		self.test_split = list(set(_test_split) & set(idx))
+		self.method = func1
+		if len(self.df.loc[self.test_split]) < 15:
+			pass
+		else:
+			getattr(self, train_method)(bounds=bounds[0])
+			_df[f'{met}_estimation'].loc[idx] = self.df[f'{met}_estimation']
+			self.popt[f'{train_method}_1'] = self.popt[train_method]
+
+		idx = np.where(_df[variable] < threshold)[0]
+		self.train_split = list(set(_train_split) & set(idx))
+		self.test_split = list(set(_test_split) & set(idx))
+		self.method = func2
+		if len(self.df.loc[self.test_split]) < 15:
+			pass
+		else:
+			getattr(self, train_method)(bounds=bounds[1])
+			_df[f'{met}_estimation'].loc[idx] = self.df[f'{met}_estimation']
+			self.popt[f'{train_method}_2'] = self.popt[train_method]
+
+		self.train_split = _train_split
+		self.test_split = _test_split
+		self.df = _df
+		self.method["two_regime"] = [func1, func2]
+		self.threshold = threshold
+		print(f'Estimation contains {np.isnan(self.df[f"{met}_estimation"].to_numpy()).sum() / len(self.df)}% NaN values')
+		self.wind_model_stats.update(
+			{
+				f"{met}_mae": np.nanmean(abs(self.df[self.ground_truth].to_numpy() - self.df[f'{met}_estimation'])),
+				f"{met}_rmse": np.sqrt(np.nanmean((self.df[self.ground_truth].to_numpy() - self.df[f'{met}_estimation']) ** 2)),
+				# f"{met}_r2": metrics.r2_score(self.df[self.ground_truth], self.df[f'{met}_estimation']),
+				f"{met}_var": np.var(abs(self.df[self.ground_truth] - self.df[f'{met}_estimation'])),
+				f"{met}_std": np.std(abs(self.df[self.ground_truth] - self.df[f'{met}_estimation']))
+			})
 

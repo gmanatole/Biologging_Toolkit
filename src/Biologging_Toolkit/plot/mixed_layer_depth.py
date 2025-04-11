@@ -18,12 +18,11 @@ import warnings
 warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 
 
-def plot_wind_correlation(depids, path, data : list = ['lstm'], labels = None, save = False, save_path = '.') :
+'''def plot_wind_correlation(depids, path, data : list = ['lstm'], labels = None, save = False, save_path = '.') :
     fig, ax = plt.subplots(figsize=(7, 7))
     colors = colormaps.get_cmap('viridis').resampled(len(data))
-    markers = ['s', 'P', '^', 'o']
-    ax.set_title(f"Correlation for all FODs")
-    ax.grid()
+    markers = ['s', 'P', '^', 'o', 'D', 'X']
+    #ax.set_title(f"Correlation for all FODs")
     labels = data if labels is None else labels
     df = pd.DataFrame()
     for i, depid in enumerate(depids):
@@ -39,11 +38,48 @@ def plot_wind_correlation(depids, path, data : list = ['lstm'], labels = None, s
         ax.plot(list(range(0, 48)), corr_df.corr().iloc[1:, 0], color=colors(j), marker=markers[j])
         legend_handles.append(plt.Line2D([0], [0], color=colors(j), marker=markers[j], lw = 2, label = label))
     ax.legend(handles=legend_handles)
-    fig.text(0.56, 0.04, 'Hours before MLD obtention', ha='center', va='center', fontsize=14)
+    fig.text(0.5, 0.04, 'Hours before MLD obtention', ha='center', va='center', fontsize=14)
     fig.text(0.04, 0.5, r'Pearson correlation coefficient with previous wind speeds and MLD', ha='center', va='center',
              rotation='vertical', fontsize=14)
+    ax.grid()
     if save :
-        fig.savefig(os.path.join(save_path, f'global_wind_correlation.png'))
+        fig.tight_layout(rect=[0.05, 0.05, 0.95, 0.95])
+        fig.savefig(os.path.join(save_path, f'global_wind_correlation.pdf'))
+'''
+
+def plot_wind_correlation(depids, path, data=['lstm'], labels=None, save=False, save_path='.'):
+    fig, ax = plt.subplots(figsize=(7, 7))
+    fig.patch.set_facecolor('white')
+    ax.set_facecolor('white')
+    for spine in ax.spines.values():
+        spine.set_visible(True)  # Make sure all axis lines are shown
+        spine.set_color('black')  # Set them to black to ensure visibility
+        spine.set_linewidth(1.2)
+    ax.tick_params(axis='both', colors='black')
+    colors = colormaps.get_cmap('viridis').resampled(len(data))
+    markers = ['s', 'P', '^', 'o', 'D', 'X']
+    labels = data if labels is None else labels
+    df = pd.DataFrame()
+    for i, depid in enumerate(depids):
+        _df = pd.read_csv(os.path.join(path, depid, f'{depid}_dive.csv'))
+        _df = get_previous_wind(_df, data=data)
+        df = pd.concat((df, _df))
+    legend_handles = []
+    for j, (_data, label) in enumerate(zip(data, labels)):
+        cols = ['meop_mld'] + [f'{_data}_{i}h' for i in range(48)]
+        corr_df = df[cols]
+        ax.plot(list(range(0, 48)), corr_df.corr().iloc[1:, 0],
+                color=colors(j), marker=markers[j])
+        legend_handles.append(plt.Line2D([0], [0], color=colors(j), marker=markers[j], lw=2, label=label))
+    ax.legend(handles=legend_handles)
+    fig.text(0.5, 0.04, 'Hours before MLD obtention', ha='center', va='center', fontsize=14)
+    fig.text(0.04, 0.5, r'Pearson correlation coefficient',
+             ha='center', va='center', rotation='vertical', fontsize=14)
+    ax.grid(True, linestyle='-', linewidth=0.5, color='gray')
+    if save:
+        fig.tight_layout(rect=[0.05, 0.05, 0.95, 0.95])
+        fig.savefig(os.path.join(save_path, 'global_wind_correlation.pdf'))
+    plt.show()
 
 def plot_wind_average_correlation(depids, path, data = 'lstm', group = None, save = False, save_path = '.') :
     #### HEATMAP FOR BINNED INDEPENDANT VARIABLE OF CORRELATION AS A FUNCTION OF WIND AVERAGING PERIOD AND HOURS BEFORE MLD
