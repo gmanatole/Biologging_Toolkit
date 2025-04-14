@@ -48,6 +48,7 @@ class Wind():
 		else :
 			self.depid = [self.depid]
 			self.path = [self.path]
+			self.acoustic_path = [self.acoustic_path]
 
 		self.method = empirical[method]
 		if data : 
