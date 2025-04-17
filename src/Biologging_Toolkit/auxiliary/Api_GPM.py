@@ -10,6 +10,17 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 import matplotlib.pyplot as plt
 import pandas as pd
 
+# -----------------------
+# Exemple d'utilisation :
+# -----------------------
+
+# depids = ['ml18_294b','ml19_292a','ml19_292b','ml19_293a','ml19_294a','ml20_293a','ml20_296b','ml20_313a','ml21_295a','ml21_305b'] # pas fonctionné : 
+# for depid in depids :
+#     Api_GPM.compile_gpm_data(depid, "E:/individus_filtered/", "E:/Downloads/GPM_data/")
+#     Api_GPM.join_gpm(depid, f"E:/individus_filtered", "precipitation")
+#
+# -----------------------
+
 def round_to_half_hour(dt):
     minutes = (dt.minute // 30) * 30
     rounded_dt = dt.replace(minute=minutes, second=0, microsecond=0)
@@ -74,6 +85,7 @@ def compile_gpm_data(depid, fp, gpm_files_folder_path):
 
     gpm_file_list = get_gpm_file_name(first_timestamp, last_timestamp)
     # nc_gpm_formatted = netCDF4.Dataset(os.path.join(fp,depid,f'gpm_{depid}.nc'), mode='w')
+    nc.close()
 
     gpm_global_lat = None
     gpm_global_lon = None
@@ -204,9 +216,10 @@ def plot_GPM_value(depid, path, value, ref = 'begin_time', saveAsGif = False, sa
 	if not saveAsGif:
 		plt.show()
             
-def join_gpm(depid, path, gpm_path, value, ref = 'begin_time', **kwargs):
+def join_gpm(depid, path, value, ref = 'begin_time', **kwargs):
 	default = {'units':'unknown', 'long_name':value}
 	attrs = {**default, **kwargs}
+	gpm_path = os.path.join(path, depid,f"{depid}_gpm.nc")
 	gpm_ds = netCDF4.Dataset(gpm_path)
 	base_time = datetime(1980, 1, 6, 0, 0, 0, tzinfo=timezone.utc)
 
@@ -217,7 +230,7 @@ def join_gpm(depid, path, gpm_path, value, ref = 'begin_time', **kwargs):
 	interp_gpm = RegularGridInterpolator((time_gpm, gpm_ds['lat'][:].data, gpm_ds['lon'][:].data), gpm_ds[value][:].data, bounds_error = False)
 	
 	try :
-		ds = netCDF4.Dataset(os.path.join(path, depid + '_sens.nc'), mode = 'a')
+		ds = netCDF4.Dataset(f"{path}/{depid}/{depid}_sens.nc", mode = 'a')
 		var_data = interp_gpm((ds['time'][:].data, ds['lat'][:].data, ds['lon'][:].data))
 		var = ds.createVariable(value+"_GPM", np.float32, ('time',))
 		var_attrs = attrs
@@ -229,13 +242,13 @@ def join_gpm(depid, path, gpm_path, value, ref = 'begin_time', **kwargs):
 		print('No reference NetCDF file found')
 	
 	try :
-		dive_ds = pd.read_csv(os.path.join(path, depid + '_dive.csv'))
+		dive_ds = pd.read_csv(os.path.join(path, depid, f'{depid}_dive.csv'))
 		lat_interp = interp1d(ds['time'][:].data, ds['lat'][:].data)
 		lon_interp = interp1d(ds['time'][:].data, ds['lon'][:].data)
 		dive_ds['lat'] = lat_interp(dive_ds[ref])
 		dive_ds['lon'] = lon_interp(dive_ds[ref])
 		dive_ds[value+"_GPM"] = interp_gpm((dive_ds[ref], dive_ds.lat, dive_ds.lon))
-		dive_ds.to_csv(os.path.join(path, depid + '_dive.csv'), index = None)
+		dive_ds.to_csv(os.path.join(path, depid, f'{depid}_dive.csv'), index = None)
 	except (FileNotFoundError, KeyError):
 		print('No dive dataframe found')
 	ds.close()
