@@ -1,7 +1,9 @@
 import numpy as np
 import netCDF4 as nc
 from scipy.signal import medfilt, lfilter, firwin
+from scipy.interpolate import interp1d
 from Biologging_Toolkit.wrapper import Wrapper
+from Biologging_Toolkit.application.Jerk import get_peaks
 from Biologging_Toolkit.utils.format_utils import *
 from Biologging_Toolkit.auxiliary.Sun import *
 from glob import glob
@@ -30,12 +32,51 @@ class Bioluminescence(Wrapper):
 			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_time_sens(sens.dephist_device_datetime_start)
 			self.biolum_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start
 			self.LL = sens['LL'][:].data
-			self.lat, self.lon, self.trk_time = trk['POS'][:].data[1], trk['POS'][:].data[2], get_time_trk(trk)
+			lat, lon, trk_time = trk['POS'][:].data[1], trk['POS'][:].data[2], get_time_trk(trk)
+			self.lat, self.lon = interp1d(trk_time, lat, bounds_error=False)(self.biolum_time), interp1d(trk_time, lon, bounds_error=False)(self.biolum_time)
 		self.samplerate = self.dt if not samplerate else samplerate 
 		self.raw_path = raw_path
 
-	def get_flash(self, threshold = 0.98):
+	def forward(self, overwrite = False):
+		ds_flash = []
+		for t in self.ds['time'] :
+			start, end = t, t + self.dt
+			mask = (self.biolum_time >= start) & (self.biolum_time < end)
+			_intensity = self.flash_intensity[mask]
+			_duration = self.flash_duration[mask]
+			if len(_intensity) > 0:
+				ds_flash.append([np.nanmax(_intensity), np.nanmax(_duration)])
+			else:
+				ds_flash.append([np.nan, np.nan])
 
+		if overwrite:
+			if 'flash' in self.ds.variables:
+				self.remove_variable('flash')
+
+		if 'flash' not in self.ds.variables:
+			flash = self.ds.createVariable('flash', np.float64, ('time', 'feature'))
+			flash.long_name = f'Maximum flash intensity and duration'
+			flash.feature_description = '0: intensity, 1: duration'
+			flash.raw_data_samplerate = self.raw_samplerate
+			flash.threshold = self.threshold
+			flash.intensity_comment = 'Maximum intensity of flashes'
+			flash.duration_comment = 'Maximum duration of peaks'
+			flash.duration_units = 's'
+			flash[:,:] = ds_flash
+	def get_flash(self, threshold = 0.98, sun_threshold = -12):
+		self.threshold = threshold
+		self.sun = get_sun_pos(self.biolum_time, self.lat, self.lon)[1]
+		groups = np.zeros(len(self.sun))
+		groups[self.sun < sun_threshold * np.pi / 180] = -1
+		groups[self.sun > 0] = 1
+		self.flash_duration, self.flash_intensity = np.zeros(len(self.LL)), np.zeros(len(self.LL))
+		for lum in [-1,0,1] :
+			_LL = self.LL
+			_LL[groups != lum] = 0
+			_thresh = np.quantile(self.LL[groups != lum], threshold)
+			pos_start, pos_end, flash_time, flash_max, min_len = get_peaks(_LL, samplerate = 5, blanking = 1, threshold = _thresh)
+			self.flash_duration[pos_start] = (pos_end - pos_start) / 5
+			self.flash_intensity[pos_start] = flash_max
 
 	def process_raw(self, fsin = 50, length = 3600) :
 		'''
