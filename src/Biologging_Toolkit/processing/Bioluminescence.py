@@ -1,8 +1,9 @@
 import numpy as np
 import netCDF4 as nc
-from scipy.signal import medfilt
+from scipy.signal import medfilt, lfilter, firwin
 from Biologging_Toolkit.wrapper import Wrapper
 from Biologging_Toolkit.utils.format_utils import *
+from Biologging_Toolkit.auxiliary.Sun import *
 from glob import glob
 import os
 import soundfile as sf
@@ -15,23 +16,37 @@ class Bioluminescence(Wrapper):
 			  depid,
 			  *,
 			  path,
-			  raw_path,
+			  sens_path : str = None,
+			  trk_path : str = None,
+			  raw_path : str = None,
 			  samplerate = None
 			  ):
-		
-				
 
-		super().__init__(
-			depid,
-			path
-        )
-		
+		super().__init__(depid,path)
+
+		if sens_path & trk_path :
+			sens = nc.Dataset(sens_path)
+			trk = nc.Dataset(trk_path)
+			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_time_sens(sens.dephist_device_datetime_start)
+			self.biolum_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start
+			self.LL = sens['LL'][:].data
+			self.lat, self.lon, self.trk_time = trk['POS'][:].data[1], trk['POS'][:].data[2], get_time_trk(trk)
 		self.samplerate = self.dt if not samplerate else samplerate 
 		self.raw_path = raw_path
 
+	def get_flash(self, threshold = 0.98):
+
 
 	def process_raw(self, fsin = 50, length = 3600) :
-		
+		'''
+		Parameters
+		----------
+		fsin : sampling rate
+		length : length of block to analyze
+		Returns
+		-------
+		Light level for all gains from swv files
+		'''
 		#ADD ARGUMENT GAIN FLAG TO ONLY DO IT ON GAIN 3 OR ON ALL THE GAIN
 		if fsin % self.samplerate != 0:
 			print(f"Output fs must be an integer divisor of raw sampling rate ({fsin} Hz)")
@@ -42,33 +57,24 @@ class Bioluminescence(Wrapper):
 		len_ = nsamps / fsin  # Length of block in seconds
 		lenreq = len_ + bl / fsin
 		cue = 0
-		
 		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
-
 		L = []
 		L_col = get_xml_columns(swv_fns[0][:-3] + 'xml', cal='ext', qualifier2='d4')  # Get column of sonar files corresponding to light
 		for fn in swv_fns :
 			sig, fs = sf.read(fn)
-			
 			for idx in range(0, len(sig), nsamps):
 				ll = sig[idx:idx+nsamps, L_col]
-			
 				# Clean the data
 				ll = self.fix_light_data(ll)
-			
 				# Buffer the data into blocks
 				n_blocks = len(ll) // bl
 				Y = np.array([ll[i:i+bl] for i in range(0, n_blocks * bl, bl)])
-			
 				# Calculate the max of each block and append to L
 				L.extend(np.nanmax(Y, axis=1))
-			
 		# Ensure L is a column vector
 		L = np.array(L)
-
 		if len(L) > 0:
 			L = np.append(L, L[-1])  # Add one measurement to equalize length of other sensors
-
 		return L
 	
 	
@@ -92,8 +98,7 @@ class Bioluminescence(Wrapper):
 					times.append(_time)
 		self.gain =  np.array(gainnums)
 		self.gain_time = np.array(times)
-		        
-		
+
 	def high_pass_filter_light_data(self):
 		"""High pass filter the light data to remove low-frequency noise."""
 		cutoff = 0.2 / (self.LL['sampling_rate'] / 2)
@@ -105,7 +110,6 @@ class Bioluminescence(Wrapper):
 	def fir_nodelay(x, n, fp, qual='Hamming'):
 		"""
 		Delay-free filtering using a linear-phase FIR filter followed by delay correction.
-		
 		Parameters:
 		x    : np.ndarray
 		   The signal to be filtered. It can be multi-channel and 
@@ -116,58 +120,45 @@ class Bioluminescence(Wrapper):
 		   The filter cut-off frequency relative to the Nyquist frequency (fs/2 = 1).
 		qual : str, optional
 		   Qualifier to pass to firwin (e.g., window type).
-		
 		Returns:
 		y    : np.ndarray
 		   The filtered signal with delay correction.
 		h    : np.ndarray
 		   The FIR filter used.
 		"""
-		
 		n = int(np.floor(n / 2) * 2)  # n must be even for an integer group delay
 		noffs = n // 2  # Filter delay
-		
 		if qual is not None:
 			h = firwin(n+1, fp, pass_zero=qual)
 		else:
 			h = firwin(n+1, fp)
-		
 		if x.ndim == 1:
 			x = x[:, np.newaxis]
-		
 		# Add padding to the signal
 		x_padded = np.vstack([x[n-1::-1, :], x, x[:-n-1:-1, :]])
-		
 		# Filter the signal
 		y = lfilter(h, 1.0, x_padded, axis=0)
-		
 		# Remove padding and correct the delay
 		y = y[n+noffs-1:y.shape[0]-n+noffs-1, :]
-
 		return y, h
 	    
 	
 	def fix_light_data(self, L) :
-		
 		# Find indices where L > 0.99
 		kc = np.where(L > 0.99)[0]
 		L[kc] = np.nan
-		
 		# Buffer the data into columns of length INTVL to compute median
 		n = len(L)
-		nbl = int(np.ceil(n / INTVL))
-		pad_length = (INTVL - (n % INTVL)) % INTVL
+		nbl = int(np.ceil(n / self.INTVL))
+		pad_length = (self.INTVL - (n % self.INTVL)) % self.INTVL
 		L_padded = np.pad(L, (0, pad_length), constant_values=np.nan)  #To create 2D matrix of size (-1, INTVL)
-		Lb = L_padded.reshape(-1, INTVL).T
+		Lb = L_padded.reshape(-1, self.INTVL).T
 		Lp = np.nanmedian(Lb, axis=1)
-		
 		# Subtract the interference pattern from the original signal
 		L_corrected = L - np.tile(Lp, nbl)[:n]
 		L_corrected = np.append(L_corrected, Lp[:n - len(L_corrected)])
-		
 		# Apply a median filter with a kernel size of 3
 		L_corrected = medfilt(np.abs(L_corrected), kernel_size=3)
-		
 		# Restore the original high values
 		L_corrected[kc] = 1 - np.median(Lp)
 
