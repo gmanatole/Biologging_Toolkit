@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import numpy as np
 import calendar
 import time
@@ -12,6 +12,15 @@ def get_start_time_sens(x) :
 	Turn string UTC datetime (from sens5 structure) into a POSIX timestamp (UTC)
 	"""
 	return datetime.strptime(x, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
+
+def get_time_trk(ds) :
+	timestamp = get_start_time_sens(ds.dephist_device_datetime_start) + ds['POS'][:].data[0]
+	if min(timestamp) > datetime(2022,1,1).timestamp() :
+		timestamp = []
+		for x in ds['POS'][:].data :
+			timestamp.append(calendar.timegm((datetime.fromordinal(int(x)) + timedelta(days=x % 1) - timedelta(days=366)).timetuple()))
+		timestamp = np.array(timestamp)
+	return timestamp
 
 def get_ext_time_xml(x) :
 	"""
