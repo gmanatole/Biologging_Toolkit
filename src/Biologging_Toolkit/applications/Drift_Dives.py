@@ -183,8 +183,11 @@ class DriftDives(Wrapper) :
 			data = np.load(fn)
 			if data['len_spectro'] <= 300:
 				continue
+			_data = np.load(fn)['spectro'][:300:30, posfeatures]
+			if np.isnan(_data).sum() != 0 :
+				continue
 			_fns.append(fn)
-			X.append(np.load(fn)['spectro'][:300:30, posfeatures])
+			X.append(_data)
 		self.cluster_fns = np.array(_fns)
 		X = np.array(X)
 		X = X.reshape(X.shape[0], -1)
