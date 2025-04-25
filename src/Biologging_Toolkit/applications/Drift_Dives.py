@@ -1,13 +1,11 @@
-import matplotlib.pyplot as plt
-import matplotlib.colors as co
-import matplotlib.cm as cm
 import numpy as np
-import pandas as pd
+from glob import glob
+import os
 import umap.umap_ as umap
 import hdbscan
-import scipy
 from tqdm import tqdm
 from Biologging_Toolkit.wrapper import Wrapper
+from Biologging_Toolkit.utils.bioluminescence_utils import find_sequence
 
 class DriftDives(Wrapper) :
 	"""
@@ -85,6 +83,58 @@ class DriftDives(Wrapper) :
 				depth[:] = self.depth_drift
 
 
+	def from_acceleration(self, acc_threshold = 0.2, dur_threshold = 200, depth_threshold = None):
+		"""
+		Code translated from Matlab code used by Richard et al., 2014 to find drift dives using acceleration
+		Parameters
+		----------
+		acc_threshold : Acceleration threshold above which behavior is considered as active swimming. Default is 0.2 m/s2.
+		dur_threshold :  Minimum duration (in seconds) of drift dives to keep. Default is 200s.
+		depth_threshold : Maximum depth under which drift dives are not considered. Default is None.
+		Returns
+		-------
+		Creates three attributes by adding each threshold one by one.
+		"""
+		res = 1
+		X, Y, Z = self.sens['A'][:].data
+		samplerate = self.sens['A'].sampling_rate
+		# Compute acceleration norm
+		SOM = np.sqrt(X ** 2 + Y ** 2 + Z ** 2)
+		# Compute STD of acceleration over sliding window
+		StdFix = []
+		for ii in range(0, len(SOM) - int(res * samplerate), int(res * samplerate)):
+			StdFix.append(np.nanstd(SOM[ii:ii + int(res * samplerate)]))
+		StdFix = np.array(StdFix)
+		# Make vector same dimension as sens5
+		if len(StdFix) > len(SOM):
+			StdFix = StdFix[:len(SOM)]
+		else:
+			padded = np.full(len(SOM), np.nan)
+			padded[:len(StdFix)] = StdFix
+			StdFix = padded
+		# STD on 40s sliding window
+		VarMob = np.full(len(StdFix), np.nan)
+		for ii in range(int(20 * samplerate), len(StdFix) - int(20 * samplerate)):
+			VarMob[ii] = np.nanstd(
+				StdFix[ii - int(20 * samplerate): ii + int(20 * samplerate)])
+		# Find length and timestamps of periods respecting this condition
+		tab = find_sequence(VarMob < acc_threshold, samplerate=samplerate)
+		I = np.where((tab[:, 3] > dur_threshold) & (tab[:, 0] == 1))[0]
+		# Keep periods where depth is higher than threshold
+		J = []
+		if depth_threshold :
+			for ii in I:
+				segment = self.sens['P'][:].data[int(tab[ii, 1]): int(tab[ii, 2]) + 1]
+				T = np.where(segment >= depth_threshold)[0]
+				if len(T) * samplerate > dur_threshold:
+					T_diff = np.diff(T)
+					verif = find_sequence(T_diff == 1, samplerate = samplerate)
+					if np.any((verif[:, 0] == 1) & (verif[:, 3] >= 30)):
+						J.append(int(tab[ii, 1]))
+		self.drifts = tab
+		self.long_drifts = I
+		self.upper_drifts = J
+
 	def from_inertial(self):
 		"""
 		Identifies drift portions based on the animal's bank angle ('inertial' mode).
@@ -123,41 +173,28 @@ class DriftDives(Wrapper) :
 		self.depth_drift = dive_type
 
 
-	def acoustic_cluster(self, ml, var = '2200', min_cluster_size = 20, min_samples = 15):
-		spl_df = pd.read_csv(f'/run/media/grosmaan/LaCie/individus_brut/individus/{ml}/spl_data_cal.csv').drop('time', axis = 1)
-		aux_df = pd.read_csv(f'/run/media/grosmaan/LaCie/individus_brut/individus/{ml}/aux_data.csv')
-		df = pd.concat((aux_df, spl_df), axis = 1).dropna(subset = var)
-		indices = get_indices(df.depth)
-		
-		X = np.zeros((len(indices)-1, 100))
-		data = pd.DataFrame()
-		timestamp, depth = np.zeros((len(indices)-1, 100)), np.zeros((len(indices)-1, 100))
-		for i in range(1, len(indices)):
-			X[i-1] = scipy.signal.resample(df[var].iloc[indices[i-1]:indices[i]], 100)
-			timestamp[i-1] = np.linspace(df.time.iloc[indices[i-1]], df.time.iloc[indices[i]], 100)
-			depth[i-1] = scipy.signal.resample(df.depth.iloc[indices[i-1]:indices[i]], 100)
-		#X = np.lib.stride_tricks.sliding_window_view(df[var], window_shape=(window_size))
-		#data = pd.DataFrame()
-		#data['depth'] = df.depth[window_size//2 : -window_size//2+1]
-		#data['timestamp'] = df.time[window_size//2 : -window_size//2+1]
-
-
+	def acoustic_cluster(self, acoustic_path = None, min_cluster_size = 50, min_samples = 10):
+		fns = glob(os.path.join(acoustic_path, '*'))
+		nfeatures = 15
+		posfeatures = np.exp(np.arange(0, nfeatures) * np.log(513) / nfeatures).astype(int)
+		X = []
+		_fns = []
+		for fn in fns:
+			data = np.load(fn)
+			if data['len_spectro'] <= 300:
+				continue
+			_fns.append(fn)
+			X.append(np.load(fn)['spectro'][:300:30, posfeatures])
+		self.cluster_fns = np.array(_fns)
+		X = np.array(X)
+		X = X.reshape(X.shape[0], -1)
 		project = umap.UMAP()
 		embed = project.fit_transform(X)
-		
-		clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples).fit(embed) 
-		data['cluster'] = clusterer.labels_
-		data.cluster[data.cluster == -1] = -100
-		norm = co.Normalize(vmin=clusterer.labels_.min(), vmax=clusterer.labels_.max())
-		cmap = cm.ScalarMappable(norm=norm, cmap=cm.jet)
-		for i in range(len(indices)-1):
-			plt.scatter(timestamp[i], depth[i], color = cmap.to_rgba([int(clusterer.labels_[i])]), s = 2)
-		#plt.plot(data.timestamp, data.depth, c = data.cluster)
-		#plt.plot(df.time, df[var])
-		plt.show()
-		return timestamp, depth, clusterer.labels_, embed
+		self.clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples).fit(embed)
 
-	def acoustic_threshold(self):
+	def acoustic_threshold(self, threshold = None):
+		if not threshold :
+			self.from_acceleration()
 		pass
 
 
