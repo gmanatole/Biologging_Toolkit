@@ -3,7 +3,7 @@ import netCDF4 as nc
 from scipy.signal import medfilt, lfilter, firwin
 from scipy.interpolate import interp1d
 from Biologging_Toolkit.wrapper import Wrapper
-from Biologging_Toolkit.application.Jerk import get_peaks
+from Biologging_Toolkit.applications.Jerk import Jerk
 from Biologging_Toolkit.utils.format_utils import *
 from Biologging_Toolkit.auxiliary.Sun import *
 from glob import glob
@@ -26,16 +26,19 @@ class Bioluminescence(Wrapper):
 
 		super().__init__(depid,path)
 
-		if sens_path & trk_path :
+		if (sens_path is not None) & (trk_path is not None) :
 			sens = nc.Dataset(sens_path)
 			trk = nc.Dataset(trk_path)
-			depth, self.samplerate, depth_start = sens['P'][:].data, np.round(1/sens['P'].sampling_rate, 2), get_start_time_sens(sens.dephist_device_datetime_start)
-			self.biolum_time = np.linspace(0, len(depth), len(depth))*self.samplerate+depth_start
+			self.samplerate, start = sens['LL'].sampling_rate, get_start_time_sens(sens.dephist_device_datetime_start)
 			self.LL = sens['LL'][:].data
+			self.biolum_time = np.linspace(0, len(self.LL), len(self.LL))/self.samplerate+start
 			lat, lon, trk_time = trk['POS'][:].data[1], trk['POS'][:].data[2], get_time_trk(trk)
 			self.lat, self.lon = interp1d(trk_time, lat, bounds_error=False)(self.biolum_time), interp1d(trk_time, lon, bounds_error=False)(self.biolum_time)
-		self.samplerate = self.dt if not samplerate else samplerate 
+		self.samplerate = self.dt if not samplerate else samplerate
 		self.raw_path = raw_path
+
+	def __call__(self, overwrite = False):
+		self.forward(overwrite)
 
 	def forward(self, overwrite = False):
 		ds_flash = []
@@ -48,6 +51,18 @@ class Bioluminescence(Wrapper):
 				ds_flash.append([np.nanmax(_intensity), np.nanmax(_duration)])
 			else:
 				ds_flash.append([np.nan, np.nan])
+
+		start_times = self.ds['time'][:].data[:-1]
+		end_times = self.ds['time'][:].data[1:]
+		bin_indices = np.searchsorted(end_times, self.biolum_time, side='right') - 1
+		valid = (bin_indices >= 0) & (self.biolum_time >= start_times[bin_indices])
+		max_intensity = np.full(len(self.ds['time']), np.nan)
+		max_duration = np.full(len(self.ds['time']), np.nan)
+		for i in np.unique(bin_indices[valid]):
+			mask = bin_indices == i
+			max_intensity[i] = np.nanmax(self.flash_intensity[mask])
+			max_duration[i] = np.nanmax(self.flash_duration[mask])
+		ds_flash = np.stack([max_intensity, max_duration], axis=1)
 
 		if overwrite:
 			if 'flash' in self.ds.variables:
@@ -63,18 +78,20 @@ class Bioluminescence(Wrapper):
 			flash.duration_comment = 'Maximum duration of peaks'
 			flash.duration_units = 's'
 			flash[:,:] = ds_flash
+
 	def get_flash(self, threshold = 0.98, sun_threshold = -12):
 		self.threshold = threshold
-		self.sun = get_sun_pos(self.biolum_time, self.lat, self.lon)[1]
+		_sun = np.pi/2 - get_sun_pos(self.biolum_time[::40], self.lat[::40], self.lon[::40])[1]
+		self.sun = interp1d(self.biolum_time[::40], _sun, fill_value='extrapolate')(self.biolum_time)
 		groups = np.zeros(len(self.sun))
 		groups[self.sun < sun_threshold * np.pi / 180] = -1
 		groups[self.sun > 0] = 1
 		self.flash_duration, self.flash_intensity = np.zeros(len(self.LL)), np.zeros(len(self.LL))
 		for lum in [-1,0,1] :
-			_LL = self.LL
+			_LL = self.LL.copy()
 			_LL[groups != lum] = 0
-			_thresh = np.quantile(self.LL[groups != lum], threshold)
-			pos_start, pos_end, flash_time, flash_max, min_len = get_peaks(_LL, samplerate = 5, blanking = 1, threshold = _thresh)
+			_thresh = np.nanquantile(self.LL[groups == lum], threshold)
+			pos_start, pos_end, flash_time, flash_max, min_len = Jerk.get_peaks(_LL, samplerate = 5, blanking = 1, threshold = _thresh)
 			self.flash_duration[pos_start] = (pos_end - pos_start) / 5
 			self.flash_intensity[pos_start] = flash_max
 
