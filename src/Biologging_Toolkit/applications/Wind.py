@@ -55,7 +55,7 @@ class Wind():
 			self.method['frequency'] = data
 		self.ref = self.depid[0] if len(self.depid) == 1 else test_depid
 
-		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[], 'wind_speed':[], data:[]}
+		df = {'fns':[], 'dive':[], 'begin_time':[], 'end_time':[], 'depid':[], 'wind_speed':[], 'precipitation_GPM':[], data:[]}
 		for dep_path, dep, ac_path in zip(self.path, self.depid, self.acoustic_path) :
 			_df = pd.read_csv(os.path.join(dep_path, f'{dep}_dive.csv'))
 			_df['depid'] = dep
@@ -69,6 +69,8 @@ class Wind():
 				df['end_time'].append(row.end_time)
 				df['depid'].append(row.depid)
 				df['wind_speed'].append(row.wind_speed)
+				df['precipitation_GPM'].append(row.precipitation_GPM)
+
 				df[data].append(row[data]) if data else df[data].append(np.nan)
 		self.df = pd.DataFrame(df)
 
