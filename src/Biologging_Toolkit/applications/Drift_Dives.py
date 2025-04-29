@@ -74,7 +74,7 @@ class DriftDives(Wrapper) :
 				if 'depth_drift' in self.ds.variables:
 					self.remove_variable('depth_drift')
 	
-			if 'depth_speed' not in self.ds.variables:
+			if 'depth_drift' not in self.ds.variables:
 				depth = self.ds.createVariable('depth_drift', np.float64, ('time',))
 				depth.units = 'binary'
 				depth.long_name = 'Flag indicating whether or not the animal is passively drifting'
