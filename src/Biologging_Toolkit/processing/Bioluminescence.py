@@ -4,10 +4,11 @@ from scipy.signal import medfilt, lfilter, firwin
 from scipy.interpolate import interp1d
 from Biologging_Toolkit.wrapper import Wrapper
 from Biologging_Toolkit.applications.Jerk import Jerk
-from Biologging_Toolkit.utils.format_utils import *
+from Biologging_Toolkit.utils.format_utils import get_start_time_sens, get_time_trk, get_xml_columns, get_ext_time_xml
 from Biologging_Toolkit.auxiliary.Sun import *
 from glob import glob
 import os
+from tqdm import tqdm
 import soundfile as sf
 
 class Bioluminescence(Wrapper):
@@ -37,42 +38,32 @@ class Bioluminescence(Wrapper):
 		self.samplerate = self.dt if not samplerate else samplerate
 		self.raw_path = raw_path
 
-	def __call__(self, overwrite = False):
+	def __call__(self, overwrite = False, threshold = 0.98, sun_threshold = -12):
 		self.forward(overwrite)
 
-	def forward(self, overwrite = False):
+	def forward(self, overwrite = False, threshold = 0.98, sun_threshold = -12):
+		self.get_flash(threshold = threshold, sun_threshold = sun_threshold)
 		ds_flash = []
-		for t in self.ds['time'] :
-			start, end = t, t + self.dt
-			mask = (self.biolum_time >= start) & (self.biolum_time < end)
-			_intensity = self.flash_intensity[mask]
-			_duration = self.flash_duration[mask]
-			if len(_intensity) > 0:
-				ds_flash.append([np.nanmax(_intensity), np.nanmax(_duration)])
-			else:
-				ds_flash.append([np.nan, np.nan])
-
-		start_times = self.ds['time'][:].data[:-1]
-		end_times = self.ds['time'][:].data[1:]
-		bin_indices = np.searchsorted(end_times, self.biolum_time, side='right') - 1
-		valid = (bin_indices >= 0) & (self.biolum_time >= start_times[bin_indices])
-		max_intensity = np.full(len(self.ds['time']), np.nan)
-		max_duration = np.full(len(self.ds['time']), np.nan)
-		for i in np.unique(bin_indices[valid]):
-			mask = bin_indices == i
-			max_intensity[i] = np.nanmax(self.flash_intensity[mask])
-			max_duration[i] = np.nanmax(self.flash_duration[mask])
-		ds_flash = np.stack([max_intensity, max_duration], axis=1)
+		flash_duration, flash_intensity = self.flash_duration[self.biolum_time >= self.ds['time'][:].data[0]], self.flash_intensity[self.biolum_time >= self.ds['time'][:].data[0]]
+		for i in tqdm(range(0,len(flash_duration), 15), desc = 'Joining data to structure') :
+			ds_flash.append([np.nanmax(flash_duration[i:i+15]), np.nanmax(flash_intensity[i:i+15]), (flash_duration[i:i+15] > 0).sum()])
+		if len(ds_flash) > len(self.ds['time'][:]):
+			ds_flash = ds_flash[:len(self.ds['time'][:])]
+		else:
+			padded = np.full((len(self.ds['time'][:]),3), [np.nan, np.nan, np.nan])
+			padded[:len(ds_flash)] = ds_flash
+			ds_flash = padded
 
 		if overwrite:
 			if 'flash' in self.ds.variables:
 				self.remove_variable('flash')
 
 		if 'flash' not in self.ds.variables:
+			flash_dim = self.ds.createDimension('feature', 3)
 			flash = self.ds.createVariable('flash', np.float64, ('time', 'feature'))
-			flash.long_name = f'Maximum flash intensity and duration'
-			flash.feature_description = '0: intensity, 1: duration'
-			flash.raw_data_samplerate = self.raw_samplerate
+			flash.long_name = f'Maximum flash intensity, duration and number of flashes'
+			flash.feature_description = '0: intensity, 1: duration, 2: number of flashes'
+			flash.orig_samplerate = self.samplerate
 			flash.threshold = self.threshold
 			flash.intensity_comment = 'Maximum intensity of flashes'
 			flash.duration_comment = 'Maximum duration of peaks'
