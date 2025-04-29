@@ -3,9 +3,12 @@ from glob import glob
 import os
 import umap.umap_ as umap
 import hdbscan
+import netCDF4 as nc
 from tqdm import tqdm
+from scipy.interpolate import interp1d
 from Biologging_Toolkit.wrapper import Wrapper
-from Biologging_Toolkit.utils.bioluminescence_utils import find_sequence
+from Biologging_Toolkit.utils.inertial_utils import find_sequence
+from Biologging_Toolkit.utils.format_utils import get_start_time_sens
 
 class DriftDives(Wrapper) :
 	"""
@@ -20,27 +23,25 @@ class DriftDives(Wrapper) :
 			  depid, 
 			  *, 
 			  path,
-			  analysis_length = 60
+			  sens_path = None,
 			  ):
 		"""
 		Initializes the DriftDives object with the given deployment ID, dataset path, and analysis length.
-		
 		Args:
 			depid: The deployment ID of the animal being analyzed.
 			path: The path to the dataset, must contain either inertial or depth data.
-			analysis_length: The length in seconds of the dive portion to be analyzed as a drift dive. Default is 60 seconds.
 		"""
 
 		super().__init__(
 			depid,
 			path
 			)
-		self.analysis_length = analysis_length
+		self.sens_path = sens_path
 
 	def __call__(self, overwrite = False, mode = 'inertial') :
 		self.forward(mode, overwrite)
 		
-	def forward(self, mode = 'inertial', overwrite = False):
+	def forward(self, mode = 'inertial', overwrite = False, acc_method = 'long'):
 		"""
 		Calls the  correct method for drift dive identification in the specified mode.
 		Updating the dataset with drift information.
@@ -68,7 +69,7 @@ class DriftDives(Wrapper) :
 				inertial[:] = self.inertial_drift		
 				
 		if mode == 'depth' :
-			self.from_inertial()
+			self.from_depth()
 			if overwrite :
 				if 'depth_drift' in self.ds.variables:
 					self.remove_variable('depth_drift')
@@ -81,6 +82,37 @@ class DriftDives(Wrapper) :
 				depth.analysis_length = self.analysis_length
 				depth.note = 'Dive portions where elephant seal has average vertical speed below 0.4 m/s during analysis length'
 				depth[:] = self.depth_drift
+
+		if mode == 'acceleration':
+			self.from_acceleration()
+			if acc_method == 'long':
+				_acc = self.drifts[self.long_drifts]
+			elif acc_method == 'upper' :
+				_acc = self.drifts[self.upper_drifts]
+			else :
+				_acc = self.drifts
+			timestamps = get_start_time_sens(self.sens.dephist_device_datetime_start) + np.arange(0, len(
+				self.sens['A'][0]) - self.sens['A'].sampling_rate) / self.sens['A'].sampling_rate
+			timestamps = timestamps[::int(self.sens['A'].sampling_rate)]
+			drift = np.zeros((len(timestamps)))
+			for _drift in _acc:
+				drift[int(_drift[1]):int(_drift[2])] = 1
+			drifts = interp1d(timestamps, drift, bounds_error = False)(self.ds['time'][:].data)
+			if overwrite :
+				if 'acc_drift' in self.ds.variables:
+					self.remove_variable("acc_drift")
+			if 'acc_drift' not in self.ds.variables:
+				acc = self.ds.createVariable('acc_drift', np.float64, ('time',))
+				acc.units = 'binary'
+				acc.long_name = 'Flag indicating whether or not the animal is passively drifting'
+				acc.measure = '1 for drift portions, 0 for any other behavior'
+				acc.method = 'Threshold on acceleration standard deviation'
+				acc.acc_threshold = self.acc_threshold
+				acc.dur_threshold = self.dur_threshold
+				acc.depth_threshold = self.depth_threshold
+				acc.analysis_length = '1s'
+				acc.note = f'Dive portions where elephant seal has average acceleration under {self.acc_threshold} during analysis length'
+				acc[:] = drifts
 
 
 	def from_acceleration(self, acc_threshold = 0.2, dur_threshold = 200, depth_threshold = None):
@@ -95,6 +127,7 @@ class DriftDives(Wrapper) :
 		-------
 		Creates three attributes by adding each threshold one by one.
 		"""
+		self.sens = nc.Dataset(self.sens_path)
 		res = 1
 		X, Y, Z = self.sens['A'][:].data
 		samplerate = self.sens['A'].sampling_rate
@@ -102,19 +135,16 @@ class DriftDives(Wrapper) :
 		SOM = np.sqrt(X ** 2 + Y ** 2 + Z ** 2)
 		# Compute STD of acceleration over sliding window
 		StdFix = []
+		pbar = tqdm(total = int((len(SOM)-int(res*samplerate))/(res*samplerate))+int(len(SOM)/(res*samplerate)-40*samplerate), position = 0, leave = True)
+		pbar.set_description('Finding drift dives using acceleration')
 		for ii in range(0, len(SOM) - int(res * samplerate), int(res * samplerate)):
+			pbar.update(1)
 			StdFix.append(np.nanstd(SOM[ii:ii + int(res * samplerate)]))
 		StdFix = np.array(StdFix)
-		# Make vector same dimension as sens5
-		if len(StdFix) > len(SOM):
-			StdFix = StdFix[:len(SOM)]
-		else:
-			padded = np.full(len(SOM), np.nan)
-			padded[:len(StdFix)] = StdFix
-			StdFix = padded
 		# STD on 40s sliding window
 		VarMob = np.full(len(StdFix), np.nan)
 		for ii in range(int(20 * samplerate), len(StdFix) - int(20 * samplerate)):
+			pbar.update(1)
 			VarMob[ii] = np.nanstd(
 				StdFix[ii - int(20 * samplerate): ii + int(20 * samplerate)])
 		# Find length and timestamps of periods respecting this condition
@@ -134,66 +164,109 @@ class DriftDives(Wrapper) :
 		self.drifts = tab
 		self.long_drifts = I
 		self.upper_drifts = J
+		self.acc_threshold = acc_threshold
+		self.depth_threshold = depth_threshold if depth_threshold is not None else 0
+		self.dur_threshold = dur_threshold
 
-	def from_inertial(self):
+	def from_inertial(self, analysis_length = 60):
 		"""
 		Identifies drift portions based on the animal's bank angle ('inertial' mode).
 		
 		Analyzes sections of the dive where the bank angle exceeds 2 radians for more than 98% of the analysis length.
 		The results are stored in `inertial_drift`, a binary flag in the dataset.
+		Parameters
+		----------
+		analysis_length :  Length (in s) of sliding window for vertical speed smoothing.
 		"""
-		idx_bound = int(self.analysis_length / self.ds.sampling_rate / 2)
+		idx_bound = int(analysis_length / self.ds.sampling_rate / 2)
 		dive_type = np.full(len(self.ds['bank_angle'][:]), 0)
 		dive_type = np.full(len(self.ds['depth'][:]), 0)
 		pbar = tqdm(total = len(dive_type)-2*idx_bound-1, position = 0, leave = True)
 		pbar.set_description('Iterating through dataset')
 		for j in range(idx_bound, len(dive_type)-idx_bound-1) :
-			if ((abs(self.ds['bank_angle'][:][j-self.analysis_length:j+self.analysis_length]) > 2).sum() / self.analysis_length > 0.98):
+			if ((abs(self.ds['bank_angle'][:][j-analysis_length:j+analysis_length]) > 2).sum() / analysis_length > 0.98):
 				dive_type[j] =  1 
 			pbar.update(1)
 		self.inertial_drift = dive_type
+		self.analysis_length = analysis_length
 
-	def from_depth(self):
+	def from_depth(self, speed_threshold = 0.6, smoothing_length = 10, drift_length = 180):
 		"""
 		Identifies drift portions based on the animal's vertical speed ('depth' mode).
-		
+		Based on Dragon et al., 2012
 		Analyzes sections of the dive where the average vertical speed is below 0.4 m/s over the analysis length.
-		The results are stored in `inertial_drift`, a binary flag in the dataset.
+		The results are stored in `depth_drift`, a binary flag in the dataset.
+		Parameters
+		----------
+		speed_threshold : Vertical speed threshold above which behavior is considered as active swimming. Default is 0.6 m/s.
+		smoothing_length :  Length (in s) of sliding window for vertical speed smoothing.
+		drift_length : Length (in s) of portions to consider as drift dives.
 		"""
-		idx_bound = int(self.analysis_length / self.sampling_rate)
-		dive_type = np.full(len(self.ds['depth'][:]), 0)
-		pbar = tqdm(total = len(dive_type)-2*idx_bound-1, position = 0, leave = True)
-		pbar.set_description('Iterating through dataset')
-		for j in range(idx_bound, len(dive_type)-idx_bound-1) :
-			vertical_speed_before = (self.ds['depth'][:][j] - self.ds['depth'][:][j-idx_bound])/(self.ds['time'][:][j] - self.ds['time'][:][j-idx_bound]) 
-			vertical_speed_after = (self.ds['depth'][:][j+idx_bound] - self.ds['depth'][:][j])/(self.ds['time'][:][j+idx_bound] - self.ds['time'][:][j]) 
-			if (abs(vertical_speed_after) < 0.4) or abs((vertical_speed_before) < 0.4) :
-				dive_type[j] = 1
-			pbar.update(1)
-		self.depth_drift = dive_type
+		# Compute vertical speed
+		vertical_speed = np.full(len(self.ds['depth'][:]), np.nan)
+		_vertical_speed = np.diff(self.ds['depth'][:].data) / np.diff(self.ds['time'][:].data)
+		vertical_speed[:len(_vertical_speed)] = _vertical_speed
 
+		#Apply smoothing window
+		speed_bound = int(smoothing_length / 2 / self.sampling_rate)
+		pbar = tqdm(total = len(vertical_speed)-2*speed_bound-1, position = 0, leave = True)
+		pbar.set_description('Applying smoothing window')
+		for j in range(speed_bound, len(vertical_speed) - speed_bound - 1) :
+			vertical_speed[j] = np.nanmean(vertical_speed[j - speed_bound : j + speed_bound])
+			pbar.update(1)
+
+		# Find drift dives
+		dive_type = np.full(len(self.ds['depth'][:]), 0)
+		drift_bound = int(drift_length / self.sampling_rate / 2)
+		pbar = tqdm(total = len(dive_type)-2*drift_bound-1,position = 0, leave = True)
+		pbar.set_description('Finding drift_dives')
+		for k in range(drift_bound, len(dive_type)-drift_bound-1) :
+			if (np.all(abs(vertical_speed[k - drift_bound : k + drift_bound]) < speed_threshold)) & (np.nanstd(vertical_speed[k - drift_bound : k + drift_bound]) < 0.005) :
+				dive_type[k - drift_bound : k + drift_bound] = 1
+		self.depth_drift = dive_type
+		self.analysis_length = drift_length
+		#idx_bound = int(analysis_length / self.sampling_rate)
+		#for j in range(idx_bound, len(dive_type)-idx_bound-1) :
+			#vertical_speed_before = (self.ds['depth'][:][j] - self.ds['depth'][:][j-idx_bound])/(self.ds['time'][:][j] - self.ds['time'][:][j-idx_bound])
+			#vertical_speed_after = (self.ds['depth'][:][j+idx_bound] - self.ds['depth'][:][j])/(self.ds['time'][:][j+idx_bound] - self.ds['time'][:][j])
+			#if (abs(vertical_speed_after) < speed_threshold) or abs((vertical_speed_before) < speed_threshold) :
+			#	dive_type[j] = 1
 
 	def acoustic_cluster(self, acoustic_path = None, min_cluster_size = 50, min_samples = 10):
 		fns = glob(os.path.join(acoustic_path, '*'))
 		nfeatures = 15
-		posfeatures = np.exp(np.arange(0, nfeatures) * np.log(513) / nfeatures).astype(int)
+		self.posfeatures = np.exp(np.arange(0, nfeatures) * np.log(513) / nfeatures).astype(int)
 		X = []
 		_fns = []
+		start, stop = [], []
 		for fn in fns:
 			data = np.load(fn)
 			if data['len_spectro'] <= 300:
 				continue
-			_data = np.load(fn)['spectro'][:300:30, posfeatures]
+			_data = data['spectro'][:300:30, self.posfeatures]
 			if np.isnan(_data).sum() != 0 :
 				continue
 			_fns.append(fn)
 			X.append(_data)
+			start.append(data['time'][0])
+			stop.append(data['time'][-1])
 		self.cluster_fns = np.array(_fns)
 		X = np.array(X)
-		X = X.reshape(X.shape[0], -1)
+		self.X = X.reshape(X.shape[0], -1)
 		project = umap.UMAP()
-		embed = project.fit_transform(X)
-		self.clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples).fit(embed)
+		self.embed = project.fit_transform(self.X)
+		self.clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples).fit(self.embed)
+		self.start, self.stop = np.array(start), np.array(stop)
+
+	def save_cluster(self, cluster, overwrite = False) :
+		start = self.start[self.clusterer.labels_ == cluster]
+		stop = self.stop[self.clusterer.labels_ == cluster]
+		timestamps = self.ds['time'][:]
+		drifts = np.zeros((len(timestamps)))
+		for _start, _stop in zip(start, stop):
+			drifts[(timestamps >= _start) & (timestamps <= _stop)] = 1
+		metadata = {'method':'Clustering', 'features':f' Hz, '.join(self.posfeatures.astype(str))}
+		self.create_variable('cluster_drifts', drifts, timestamps, overwrite, **metadata)
 
 	def acoustic_threshold(self, threshold = None):
 		if not threshold :
