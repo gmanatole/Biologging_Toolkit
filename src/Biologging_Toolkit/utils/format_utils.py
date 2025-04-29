@@ -13,12 +13,13 @@ def get_start_time_sens(x) :
 	"""
 	return datetime.strptime(x, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
 
+def get_matlab_date(x) :
+	return calendar.timegm((datetime.fromordinal(int(x)) + timedelta(days=x%1) - timedelta(days = 366)).timetuple())
+
 def get_time_trk(ds) :
 	timestamp = get_start_time_sens(ds.dephist_device_datetime_start) + ds['POS'][:].data[0]
-	if min(timestamp) > datetime(2022,1,1).timestamp() :
-		timestamp = []
-		for x in ds['POS'][:].data :
-			timestamp.append(calendar.timegm((datetime.fromordinal(int(x)) + timedelta(days=x % 1) - timedelta(days=366)).timetuple()))
+	if ds.depid == 'ml17_280a' :
+		timestamp = list(map(get_matlab_date, ds['POS'][:].data[0]))
 		timestamp = np.array(timestamp)
 	return timestamp
 
@@ -37,8 +38,8 @@ def get_start_time_xml(path) :
 		tree = ET.parse(path)
 		root = tree.getroot()
 		for cfg in root.findall('CFG'):
-		    if cfg.find('RANGE[@SENS="ACC"]') != None:
-		        return datetime.strptime(cfg.attrib.get('TIME'), '%Y,%m,%d,%H,%M,%S').replace(tzinfo=timezone.utc).timestamp()
+			if cfg.find('RANGE[@SENS="ACC"]') != None:
+				return datetime.strptime(cfg.attrib.get('TIME'), '%Y,%m,%d,%H,%M,%S').replace(tzinfo=timezone.utc).timestamp()
 		raise ValueError(f'starting time not found in xml file {path}')
 
 	if isinstance(path, (list, np.ndarray)) :
