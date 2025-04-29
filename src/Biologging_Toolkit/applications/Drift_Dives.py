@@ -179,7 +179,6 @@ class DriftDives(Wrapper) :
 		analysis_length :  Length (in s) of sliding window for vertical speed smoothing.
 		"""
 		idx_bound = int(analysis_length / self.ds.sampling_rate / 2)
-		dive_type = np.full(len(self.ds['bank_angle'][:]), 0)
 		dive_type = np.full(len(self.ds['depth'][:]), 0)
 		pbar = tqdm(total = len(dive_type)-2*idx_bound-1, position = 0, leave = True)
 		pbar.set_description('Iterating through dataset')
@@ -208,7 +207,7 @@ class DriftDives(Wrapper) :
 		vertical_speed[:len(_vertical_speed)] = _vertical_speed
 
 		#Apply smoothing window
-		speed_bound = int(smoothing_length / 2 / self.sampling_rate)
+		speed_bound = int(smoothing_length / 2 / self.ds.sampling_rate)
 		pbar = tqdm(total = len(vertical_speed)-2*speed_bound-1, position = 0, leave = True)
 		pbar.set_description('Applying smoothing window')
 		for j in range(speed_bound, len(vertical_speed) - speed_bound - 1) :
@@ -217,12 +216,13 @@ class DriftDives(Wrapper) :
 
 		# Find drift dives
 		dive_type = np.full(len(self.ds['depth'][:]), 0)
-		drift_bound = int(drift_length / self.sampling_rate / 2)
+		drift_bound = int(drift_length / self.ds.sampling_rate / 2)
 		pbar = tqdm(total = len(dive_type)-2*drift_bound-1,position = 0, leave = True)
 		pbar.set_description('Finding drift_dives')
 		for k in range(drift_bound, len(dive_type)-drift_bound-1) :
 			if (np.all(abs(vertical_speed[k - drift_bound : k + drift_bound]) < speed_threshold)) & (np.nanstd(vertical_speed[k - drift_bound : k + drift_bound]) < 0.005) :
 				dive_type[k - drift_bound : k + drift_bound] = 1
+			pbar.update(1)
 		self.depth_drift = dive_type
 		self.analysis_length = drift_length
 		#idx_bound = int(analysis_length / self.sampling_rate)
