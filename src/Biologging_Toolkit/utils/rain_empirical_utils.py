@@ -5,6 +5,7 @@ import matplotlib.dates as mdates
 from datetime import datetime
 import pandas as pd
 import seaborn as sns
+import scipy.signal as signal
 
 
 def load_df(depid, path, feature):
@@ -154,6 +155,72 @@ def objective_Pickett_1991_LIN2(trial, df, feature):
 #-----------------------------------------#---------------------------------#
 #       Fonctions des la Biblio           #            DETECTION            #
 #-----------------------------------------#---------------------------------#
+
+def calculate_background_noise(spectro, percentile=10):
+    background_noise = np.percentile(spectro, percentile, axis=1)
+    return background_noise
+
+def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature = "precipitation_GPM", reduce_spectro = True):
+    df = load_df(depid, path, feature)
+    data = np.load(f"{path}{depid}/dives/acoustic_dive_{dive_number:05d}.npz")
+    time = data['time']
+    freq = data['freq']
+    if reduce_spectro :
+        spectro = data['spectro'][0:len(time)-50].T
+        time = data['time'][0:len(time)-50]
+        freq = data['freq']
+    else : 
+        spectro = data['spectro'].T
+
+    background_noise = calculate_background_noise(spectro)
+    background_noise_2d = np.tile(background_noise, (spectro.shape[1], 1))
+
+    fluctuation = spectro - background_noise_2d.T
+
+    dt = np.median(np.diff(time))
+    window_length = int(20 / dt)
+    if window_length % 2 == 0:
+        window_length += 1
+
+    minute_scale_fluctuation = signal.medfilt(fluctuation, kernel_size=(1, window_length))
+    second_scale_fluctuation = fluctuation - minute_scale_fluctuation
+
+    vmins, vmaxs = np.min(second_scale_fluctuation), np.max(second_scale_fluctuation)
+    vminm, vmaxm = np.min(minute_scale_fluctuation), np.max(minute_scale_fluctuation)
+
+    if(plot):
+        plt.figure(figsize=(15, 10))
+        plt.subplot(4,1,1)
+        plt.imshow(spectro, origin="lower", aspect='auto', cmap='seismic', interpolation='none',
+                extent=[(time.min()-time.min())/60, (time.max()-time.min())/60, freq.min(), freq.max()], vmin=-100, vmax=50)
+        plt.colorbar(label='Intensity')
+        plt.title(f'Spectrogramme:{depid}-dive n°{dive_number}\n{round(df.iloc[dive_number][feature],2)}mm/h\n{round(df.iloc[dive_number]["wind_speed"],2)}m/s')
+
+        plt.subplot(4,1,2)
+        plt.imshow(background_noise_2d.T, origin="lower", aspect='auto', cmap='seismic', interpolation='none',
+                extent=[(time.min()-time.min())/60, (time.max()-time.min())/60, freq.min(), freq.max()], vmin=-100, vmax=50)
+        plt.colorbar(label='Intensity')
+        plt.title('Bruit de fond')
+
+        plt.subplot(4,1,3)
+        plt.imshow(minute_scale_fluctuation, origin="lower", aspect='auto', cmap='seismic', interpolation='none',
+                extent=[(time.min()-time.min())/60, (time.max()-time.min())/60, freq.min(), freq.max()], vmin=vminm, vmax=vmaxm)
+        plt.colorbar(label='Intensity')
+        plt.title('Fluctuation (T>20s)')
+        plt.xlabel('Temps (minutes)')
+        plt.ylabel('Fréquence (Hz)')
+
+        plt.subplot(4,1,4)
+        plt.imshow(second_scale_fluctuation, origin="lower", aspect='auto', cmap='seismic', interpolation='none',
+                extent=[(time.min()-time.min())/60, (time.max()-time.min())/60, freq.min(), freq.max()], vmin=vmins, vmax=vmaxs)
+        plt.colorbar(label='Intensity')
+        plt.title('Fluctuation (T<20s)')
+        plt.xlabel('Temps (minutes)')
+        plt.ylabel('Fréquence (Hz)')
+        plt.tight_layout()
+        plt.show()
+    return spectro, freq, time, background_noise_2d, second_scale_fluctuation, minute_scale_fluctuation
+
 def DE_Custom_Nystuen_2015(df, a=-32,b=-36,c=0.7,d=-60,e=2,f=-10):
     spl5 =df['upwards_mean_5000']
     spl8 =df['upwards_mean_8000']
@@ -225,6 +292,8 @@ def objective_DE_Custom_Nystuen_2015(trial, df, metrique = "weighted_rain"):
         score = rain_only_accuracy_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"])
     elif(metrique=="f1_score"):
         score = f1_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"], average="weighted")
+    elif(metrique=="accuracy_score"):
+        score = accuracy_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"])
     return score
 
 def DE_Ma_Nystuen_2005(df, cond_1=194, cond_2=2.35, cond_3=48, cond_4=53):
@@ -481,6 +550,7 @@ def plot_WindRain_scatter(depid, path, estimated_rain, var_name, palette ="virid
 
     g.fig.text(0.45, -0.05, f'Précipitations estimées ({var_name}) (mm/h) en fonction \ndu vent (m/s) pour chaque plongée', ha='center', fontsize=14)
     plt.show()
+    
 def plot_RainGPMRain_scatter(depid, path, estimated_rain, var_name, palette ="viridis"):
     df = pd.read_csv(path + f'/{depid}/{depid}_dive.csv')
     feature = "precipitation_GPM"
