@@ -2,6 +2,11 @@ import numpy as np
 from glob import glob
 import os 
 
+def sort_spectrogram(spectro) :
+	col_avgs = np.mean(spectro, axis=1)
+	sorted_indices = np.argsort(col_avgs)
+	return spectro[sorted_indices]
+
 def db_mean(levels, axis=None):
 	"""
 	Energetic average of levels.
