@@ -229,17 +229,29 @@ def join_gpm(depid, path, value, ref = 'begin_time', **kwargs):
 	])
 	interp_gpm = RegularGridInterpolator((time_gpm, gpm_ds['lat'][:].data, gpm_ds['lon'][:].data), gpm_ds[value][:].data, bounds_error = False)
 	
-	try :
-		ds = netCDF4.Dataset(f"{path}/{depid}/{depid}_sens.nc", mode = 'a')
-		var_data = interp_gpm((ds['time'][:].data, ds['lat'][:].data, ds['lon'][:].data))
-		var = ds.createVariable(value+"_GPM", np.float32, ('time',))
-		var_attrs = attrs
-		var_attrs.update(kwargs)
-		for attr_name, attr_value in var_attrs.items():
-			setattr(var, attr_name, attr_value)
-		var[:] = var_data
-	except (FileNotFoundError, RuntimeError):
-		print('No reference NetCDF file found')
+	file_path = os.path.join(path, depid, f"{depid}_sens.nc")
+	print(f"Trying to open: {file_path}")
+
+	if not os.path.exists(file_path):
+		print(f"File not found: {file_path}")
+		return
+
+	try:
+		file_path = os.path.join(path, depid, f"{depid}_sens.nc")
+		print(f"Trying to open: {file_path}")
+		with netCDF4.Dataset(file_path, mode='a') as ds:
+			if value + "_GPM" in ds.variables:
+				print(f"Variable {value + '_GPM'} already exists. Skipping NetCDF write.")
+			else:
+				var_data = interp_gpm((ds['time'][:].data, ds['lat'][:].data, ds['lon'][:].data))
+				var = ds.createVariable(value + "_GPM", np.float32, ('time',))
+				var_attrs = attrs.copy()
+				var_attrs.update(kwargs)
+				for attr_name, attr_value in var_attrs.items():
+					setattr(var, attr_name, attr_value)
+				var[:] = var_data
+	except Exception as e:
+		print(f"Error handling NetCDF: {e}")
 	
 	try :
 		dive_ds = pd.read_csv(os.path.join(path, depid, f'{depid}_dive.csv'))

@@ -160,17 +160,14 @@ def calculate_background_noise(spectro, percentile=10):
     background_noise = np.percentile(spectro, percentile, axis=1)
     return background_noise
 
-def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature = "precipitation_GPM", reduce_spectro = True):
+def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature="precipitation_GPM", rain_duration=1, return_details = False, SPL_treshold = 4):
     df = load_df(depid, path, feature)
     data = np.load(f"{path}{depid}/dives/acoustic_dive_{dive_number:05d}.npz")
-    time = data['time']
-    freq = data['freq']
-    if reduce_spectro :
-        spectro = data['spectro'][0:len(time)-50].T
-        time = data['time'][0:len(time)-50]
-        freq = data['freq']
-    else : 
-        spectro = data['spectro'].T
+    
+    mask = data["depth"] > 10
+    spectro = data["spectro"][mask].T
+    time = data["time"][mask]
+    freq = data["freq"]
 
     background_noise = calculate_background_noise(spectro)
     background_noise_2d = np.tile(background_noise, (spectro.shape[1], 1))
@@ -185,10 +182,27 @@ def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature = "precipit
     minute_scale_fluctuation = signal.medfilt(fluctuation, kernel_size=(1, window_length))
     second_scale_fluctuation = fluctuation - minute_scale_fluctuation
 
-    vmins, vmaxs = np.min(second_scale_fluctuation), np.max(second_scale_fluctuation)
-    vminm, vmaxm = np.min(minute_scale_fluctuation), np.max(minute_scale_fluctuation)
+    iteration_rain_duration = int((rain_duration*60)/3)
+    mean_spl_list = []
+    for spl_list in minute_scale_fluctuation.T :
+        f5_index = np.where(freq >= 5000)[0]
+        f5_16list = spl_list.T[f5_index]
+
+        energies = [10 ** (spl / 10) for spl in f5_16list]
+        energie_moyenne = np.mean(energies)
+        spl_moyen = 10 * np.log10(energie_moyenne)
+        mean_spl_list.append(spl_moyen)
+
+    flag = False
+    for i in range(len(mean_spl_list) - (iteration_rain_duration-1)): 
+        if all(spl > SPL_treshold for spl in mean_spl_list[i:i+iteration_rain_duration]):
+            flag = True
+            break
 
     if(plot):
+        vmins, vmaxs = np.min(second_scale_fluctuation), np.max(second_scale_fluctuation)
+        vminm, vmaxm = np.min(minute_scale_fluctuation), np.max(minute_scale_fluctuation)
+
         plt.figure(figsize=(15, 10))
         plt.subplot(4,1,1)
         plt.imshow(spectro, origin="lower", aspect='auto', cmap='seismic', interpolation='none',
@@ -219,7 +233,11 @@ def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature = "precipit
         plt.ylabel('Fréquence (Hz)')
         plt.tight_layout()
         plt.show()
-    return spectro, freq, time, background_noise_2d, second_scale_fluctuation, minute_scale_fluctuation
+    if (not return_details) :
+        return "R" if flag==True else "N"
+    else :
+        output_dict = {"spectro":spectro, "freq":freq, "time":time, "background_noise_2d":background_noise_2d,"second_scale_fluctuation":second_scale_fluctuation,"minute_scale_fluctuation":minute_scale_fluctuation,"mean_spl_list": mean_spl_list}
+        return output_dict
 
 def DE_Custom_Nystuen_2015(df, a=-32,b=-36,c=0.7,d=-60,e=2,f=-10):
     spl5 =df['upwards_mean_5000']
