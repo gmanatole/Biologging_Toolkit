@@ -205,15 +205,16 @@ class DriftDives(Wrapper) :
 		"""
 		# Compute vertical speed
 		vertical_speed = np.full(len(self.ds['depth'][:]), np.nan)
-		_vertical_speed = np.diff(self.ds['depth'][:].data) / np.diff(self.ds['time'][:].data)
-		vertical_speed[:len(_vertical_speed)] = _vertical_speed
+		_vertical_speed = np.full(len(self.ds['depth'][:]), np.nan)
+		_vspeed = np.diff(self.ds['depth'][:].data) / np.diff(self.ds['time'][:].data)
+		_vertical_speed[:len(_vspeed)] = _vspeed
 
 		#Apply smoothing window
 		speed_bound = int(np.ceil(smoothing_length / 2 / self.ds.sampling_rate))
 		pbar = tqdm(total = len(vertical_speed)-2*speed_bound-1, position = 0, leave = True)
 		pbar.set_description('Applying smoothing window')
 		for j in range(speed_bound, len(vertical_speed) - speed_bound - 1) :
-			vertical_speed[j] = np.nanmean(vertical_speed[j - speed_bound : j + speed_bound])
+			vertical_speed[j] = np.nanmean(_vertical_speed[j - speed_bound : j + speed_bound])
 			pbar.update(1)
 
 		# Find drift dives
@@ -302,8 +303,8 @@ class DriftDives(Wrapper) :
 				freq = slice(None)
 			else :
 				freq = frequency if isinstance(self.depid, List) else [frequency]
-			fns = glob(os.path.join(acoustic_path, '*'))
-			avg_freq = np.nanmean(np.load(fns[np.random.randint(10,len(fns)-10)])['spectro'][:,freq], axis = 0)
+			fns = sorted(glob(os.path.join(acoustic_path, '*')))
+			avg_freq = np.nanmean(np.load(fns[10])['spectro'][:,freq], axis = 0)
 			thresholds = np.linspace(np.nanmin(avg_freq), np.nanmax(avg_freq), N)
 			for fn in tqdm(fns) :
 				data = np.nanmean(np.load(fn)['spectro'][:,freq], axis = 1)
@@ -327,5 +328,66 @@ class DriftDives(Wrapper) :
 				drifts.extend(_drift)
 			self.acoustic_drifts = np.array(drifts)
 
+	def acoustic_feature_threshold(self, frequency : Union[List, int, str] = 'all', acoustic_path = None, N = 5, threshold = None, smoothing_length = 10, drift_length = 180):
+		if not threshold :
+			if frequency == 'all' :
+				freq = slice(None)
+			else :
+				freq = frequency if isinstance(self.depid, List) else [frequency]
+			fns = sorted(glob(os.path.join(acoustic_path, '*')))
+			avg_freq = np.nanmean(np.load(fns[10])['spectro'][:, freq], axis=0)
+			thresholds = np.linspace(np.nanmin(avg_freq), np.nanmax(avg_freq), N)
+			data = []
+			for fn in tqdm(fns) :
+				data.extend(np.nanmean(np.load(fn)['spectro'][:,freq], axis = 1))
+			data = np.array(data)
+			acoustic = np.full(len(self.ds['depth'][:]), np.nan)
+			acoustic_bound = int(np.ceil(smoothing_length / 2 / self.ds.sampling_rate))
+			pbar = tqdm(total=len(data) - 2 * acoustic_bound - 1, position=0, leave=True)
+			pbar.set_description('Applying smoothing window')
+			for j in range(acoustic_bound, len(data) - acoustic_bound - 1):
+				acoustic[j] = np.nanmean(data[j - acoustic_bound: j + acoustic_bound])
+				pbar.update(1)
+			# Find drift dives
+			pbar = tqdm(total=len(thresholds), position=0, leave=True)
+			pbar.set_description('Finding drift_dives')
+			dive_type = np.full((len(thresholds), len(self.ds['depth'][:])), 0)
+			for i, thresh in enumerate(thresholds) :
+				drift_bound = int(np.ceil(drift_length / self.ds.sampling_rate / 2))
+				for k in range(drift_bound, dive_type.shape[1] - drift_bound - 1):
+					if np.all(acoustic[k - drift_bound: k + drift_bound] <= thresh) :
+						dive_type[i, k - drift_bound: k + drift_bound] = 1
+				pbar.update(1)
+			self.acoustic_drifts = np.array(dive_type)
+			self.thresholds = thresholds
+		else :
+			if frequency == 'all' :
+				freq = slice(None)
+			else :
+				freq = frequency if isinstance(self.depid, List) else [frequency]
+			fns = glob(os.path.join(acoustic_path, '*'))
+			data = []
+			for fn in tqdm(fns) :
+				data.extend(np.nanmean(np.load(fn)['spectro'][:,freq], axis = 1))
+			data = np.array(data)
 
-	
+			acoustic = np.full(len(self.ds['depth'][:]), np.nan)
+			acoustic_bound = int(np.ceil(smoothing_length / 2 / self.ds.sampling_rate))
+			pbar = tqdm(total=len(data) - 2 * acoustic_bound - 1, position=0, leave=True)
+			pbar.set_description('Applying smoothing window')
+			for j in range(acoustic_bound, len(data) - acoustic_bound - 1):
+				acoustic[j] = np.nanmean(data[j - acoustic_bound: j + acoustic_bound])
+				pbar.update(1)
+			dive_type = np.full(len(self.ds['depth'][:]), 0)
+			drift_bound = int(np.ceil(drift_length / self.ds.sampling_rate / 2))
+			pbar = tqdm(total=len(dive_type) - 2 * drift_bound - 1, position=0, leave=True)
+			pbar.set_description('Finding drift_dives')
+			for k in range(drift_bound, len(dive_type) - drift_bound - 1):
+				if np.all(acoustic[k - drift_bound: k + drift_bound] <= threshold) :
+					dive_type[k - drift_bound: k + drift_bound] = 1
+				pbar.update(1)
+			self.acoustic_drifts = np.array(dive_type)
+
+
+
+
