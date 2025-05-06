@@ -163,7 +163,8 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2
 		'y-label': 'Frequency (Hz)',
 		'x-label': 'Time (s)',
 		'path':'.',
-		'aspect':'equal'}
+		'aspect':'equal',
+		'cmap':'Viridis'}
 	params = {**orig, **kwargs}
 	debut = debut.replace(tzinfo = timezone.utc).timestamp()
 	fin = fin.replace(tzinfo = timezone.utc).timestamp()
@@ -172,7 +173,7 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2
 	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg, noverlap)
 
 	fig, ax = plt.subplots(figsize = params['figsize'])
-	ax.imshow(np.log10(Sxx), origin='lower', aspect = params['aspect'], extent=[t[0], t[-1], f[0], f[-1]])
+	ax.imshow(np.log10(Sxx), origin='lower', aspect = params['aspect'], cmap = params['cmap'], extent=[t[0], t[-1], f[0], f[-1]])
 	ax.set_xticks(np.linspace(t[0], t[-1], num=6)) 
 	ax.set_xticklabels([f"{tick:.1f}" for tick in np.linspace(0, fin-debut, num=6)]) 
 	ax.set_yticks(np.linspace(f[0], f[-1], num=6))
@@ -182,5 +183,5 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2
 	ax.set_title(params['title'])
 	fig.tight_layout()
 	if save:
-		fig.savefig(os.path.join(params['path'], f'{params['title']}.pdf'), bbox_inches='tight',pad_inches = 0.1)
+		fig.savefig(os.path.join(params['path'], f"{params['title']}.pdf"), bbox_inches='tight',pad_inches = 0.1)
 	fig.show()
