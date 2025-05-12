@@ -8,13 +8,16 @@ import seaborn as sns
 import scipy.signal as signal
 
 
-def load_df(depid, path, feature):
+def load_df(depid, path, feature, ignore_SPL=False):
     df = pd.read_csv(path + f'/{depid}/{depid}_dive.csv')
     factor = 1000 if feature.startswith('tp') else 1
     df[feature] = df[feature]*factor
     df['depid']=depid
 
-    df = df.dropna(subset=["begin_time", "upwards_mean_5000", "upwards_mean_8000", "upwards_mean_2000", "wind_speed", feature,"upwards_mean_15000", "upwards_mean_20000"])
+    if ignore_SPL:
+        df = df.dropna(subset=["begin_time", feature])
+    else:
+        df = df.dropna(subset=["begin_time", "upwards_mean_5000", "upwards_mean_8000", "upwards_mean_2000", "wind_speed", feature,"upwards_mean_15000", "upwards_mean_20000"])
     return df
 
 #-----------------------------------------#---------------------------------#
@@ -160,22 +163,42 @@ def calculate_background_noise(spectro, percentile=10):
     background_noise = np.percentile(spectro, percentile, axis=1)
     return background_noise
 
-def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature="precipitation_GPM", rain_duration=1, return_details = False, SPL_treshold = 4):
-    df = load_df(depid, path, feature)
+def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature="precipitation_GPM", rain_duration=1, return_details = False, SPL_treshold = 4, keepSurface=False, keepOnlySurface=False):
+    df = load_df(depid, path, feature, ignore_SPL=True)
     data = np.load(f"{path}{depid}/dives/acoustic_dive_{dive_number:05d}.npz")
     
-    mask = data["depth"] > 10
+    if keepSurface:
+        if keepOnlySurface :
+           mask = data["depth"] < 10
+        else : 
+            mask = data["depth"] > 0
+    else:
+        mask = data["depth"] > 10
     spectro = data["spectro"][mask].T
     time = data["time"][mask]
     freq = data["freq"]
+
+    if(len(time)<2):
+        return
 
     background_noise = calculate_background_noise(spectro)
     background_noise_2d = np.tile(background_noise, (spectro.shape[1], 1))
 
     fluctuation = spectro - background_noise_2d.T
 
+    # dt = np.median(np.diff(time))
+    # window_length = int(20 / dt)
+    #
+    #--
+    # time = time[~np.isnan(time)]
+    if len(time) < 2:
+        raise ValueError("Not enough valid time data points to compute dt.")
     dt = np.median(np.diff(time))
+    if np.isnan(dt) or dt == 0:
+        raise ValueError(f"Invalid dt value computed: {dt}")
     window_length = int(20 / dt)
+    #--
+
     if window_length % 2 == 0:
         window_length += 1
 
@@ -184,14 +207,32 @@ def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature="precipitat
 
     iteration_rain_duration = int((rain_duration*60)/3)
     mean_spl_list = []
+    mean_spl_list_3_9 = []
+    mean_spl_list_12_14 = []
     for spl_list in minute_scale_fluctuation.T :
-        f5_index = np.where(freq >= 5000)[0]
+        f5_index = np.where(freq >= 12000)[0]
         f5_16list = spl_list.T[f5_index]
 
         energies = [10 ** (spl / 10) for spl in f5_16list]
         energie_moyenne = np.mean(energies)
         spl_moyen = 10 * np.log10(energie_moyenne)
         mean_spl_list.append(spl_moyen)
+
+        f3_index = np.where((freq <= 9000) & (freq >= 8000))[0]
+        f3_9list = spl_list.T[f3_index]
+
+        energies = [10 ** (spl / 10) for spl in f3_9list]
+        energie_moyenne = np.mean(energies)
+        spl_moyen = 10 * np.log10(energie_moyenne)
+        mean_spl_list_3_9.append(spl_moyen)
+
+        f12_index = np.where((freq <= 14000) & (freq >= 12000))[0]
+        f12_14list = spl_list.T[f12_index]
+
+        energies = [10 ** (spl / 10) for spl in f12_14list]
+        energie_moyenne = np.mean(energies)
+        spl_moyen = 10 * np.log10(energie_moyenne)
+        mean_spl_list_12_14.append(spl_moyen)
 
     flag = False
     for i in range(len(mean_spl_list) - (iteration_rain_duration-1)): 
@@ -236,7 +277,16 @@ def DE_Zhao_DAsaro_2023(depid, path, dive_number, plot=True, feature="precipitat
     if (not return_details) :
         return "R" if flag==True else "N"
     else :
-        output_dict = {"spectro":spectro, "freq":freq, "time":time, "background_noise_2d":background_noise_2d,"second_scale_fluctuation":second_scale_fluctuation,"minute_scale_fluctuation":minute_scale_fluctuation,"mean_spl_list": mean_spl_list}
+        output_dict = {"spectro":spectro,
+                       "freq":freq, 
+                       "time":time, 
+                       "background_noise_2d":background_noise_2d,
+                       "second_scale_fluctuation":second_scale_fluctuation,
+                       "minute_scale_fluctuation":minute_scale_fluctuation,
+                       "mean_spl_list": mean_spl_list, 
+                       "flag":"R" if flag==True else "N",
+                       "mean_spl_list_low": mean_spl_list_3_9,
+                       "mean_spl_list_high": mean_spl_list_12_14,}
         return output_dict
 
 def DE_Custom_Nystuen_2015(df, a=-32,b=-36,c=0.7,d=-60,e=2,f=-10):
@@ -502,10 +552,7 @@ def plot_spl_by_rain_type(df, freqs, precip_value, depid, fill=True):
         spl_row = []
 
         for freq in freqs:
-            if freq == 20000:
-                spl_row.append(row.get(f"upwards_mean_{freq}", np.nan))
-            else:
-                spl_row.append(row.get(f"downwards_mean_{freq}", np.nan))
+            spl_row.append(row.get(f"upwards_mean_{freq}", np.nan))
         
         spl_by_rain_type[rtype].append(spl_row)
 

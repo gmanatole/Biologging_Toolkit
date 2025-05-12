@@ -99,7 +99,7 @@ class Wind():
 			return "To fit your model, please call skf_fit() for example"
 	
 
-	def fetch_data(self, method = 'upwards', aggregation = 'mean', frequency = 5000):
+	def fetch_data(self, method = 'upwards', aggregation = 'mean', frequency = 5000,outputpath=None) :
 
 		if aggregation == 'mean' :
 			agg = np.nanmean

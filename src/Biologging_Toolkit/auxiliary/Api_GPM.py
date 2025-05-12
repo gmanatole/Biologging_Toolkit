@@ -237,25 +237,23 @@ def join_gpm(depid, path, value, ref = 'begin_time', **kwargs):
 		return
 
 	try:
-		file_path = os.path.join(path, depid, f"{depid}_sens.nc")
-		print(f"Trying to open: {file_path}")
-		with netCDF4.Dataset(file_path, mode='a') as ds:
-			if value + "_GPM" in ds.variables:
-				print(f"Variable {value + '_GPM'} already exists. Skipping NetCDF write.")
-			else:
-				var_data = interp_gpm((ds['time'][:].data, ds['lat'][:].data, ds['lon'][:].data))
-				var = ds.createVariable(value + "_GPM", np.float32, ('time',))
-				var_attrs = attrs.copy()
-				var_attrs.update(kwargs)
-				for attr_name, attr_value in var_attrs.items():
-					setattr(var, attr_name, attr_value)
-				var[:] = var_data
+		ds = netCDF4.Dataset(file_path, mode='a') 
+		if value + "_GPM" in ds.variables:
+			print(f"Variable {value + '_GPM'} already exists. Skipping NetCDF write.")
+		else:
+			var_data = interp_gpm((ds['time'][:].data, ds['lat'][:].data, ds['lon'][:].data))
+			var = ds.createVariable(value + "_GPM", np.float32, ('time',))
+			var_attrs = attrs.copy()
+			var_attrs.update(kwargs)
+			for attr_name, attr_value in var_attrs.items():
+				setattr(var, attr_name, attr_value)
+			var[:] = var_data
 	except Exception as e:
 		print(f"Error handling NetCDF: {e}")
-	
+
 	try :
 		dive_ds = pd.read_csv(os.path.join(path, depid, f'{depid}_dive.csv'))
-		lat_interp = interp1d(ds['time'][:].data, ds['lat'][:].data)
+		lat_interp = interp1d(ds['time'][:], ds['lat'][:])
 		lon_interp = interp1d(ds['time'][:].data, ds['lon'][:].data)
 		dive_ds['lat'] = lat_interp(dive_ds[ref])
 		dive_ds['lon'] = lon_interp(dive_ds[ref])
