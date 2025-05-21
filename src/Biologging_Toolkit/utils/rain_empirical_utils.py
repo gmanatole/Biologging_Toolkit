@@ -661,7 +661,7 @@ def plot_RainGPMRain_scatter(depid, path, estimated_rain, var_name, palette ="vi
     plt.tight_layout()
     plt.show()
 
-def plot_RainSourcesDifferences_scatter(depid,path, source1="tpmaxPool", source2="precipitation_GPM", palette ="viridis", var_name1="ERA5", var_name2="GPM", useLog = True):
+def plot_RainSourcesDifferences_scatter(depid,path, source1="tpmaxPool", source2="precipitation_GPM", palette ="viridis", var_name1="ERA5", var_name2="GPM", useLog = True, reduce0=False):
     df = pd.read_csv(path + f'/{depid}/{depid}_dive.csv')
     factor1 = 1000 if source1.startswith('tp') else 1
     factor2 = 1000 if source2.startswith('tp') else 1
@@ -669,7 +669,8 @@ def plot_RainSourcesDifferences_scatter(depid,path, source1="tpmaxPool", source2
     df[source2] = df[source2]*factor2
     
     df = df.dropna(subset=["begin_time", "wind_speed", source2, source1])
-    df = df[(df[source1] > 1e-4) & (df[source2] > 1e-4)]
+    df = df[(df[source1] > 1e-1) & (df[source2] > 1e-1)]
+    # df = df[(df[source1] > 1e-4) & (df[source2] > 1e-4)]
     df["dives"] = "all"
 
     df = df[df['precipitation_GPM'] > 0]
