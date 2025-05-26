@@ -7,7 +7,7 @@ import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 
 
-class Wind_Direction(Wrapper) :
+class WindDirection(Wrapper) :
 
 	def __init__(self, 
 			  depid, 
