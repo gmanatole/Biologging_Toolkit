@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 from typing import Union, List
 import netCDF4 as nc
+from sklearn.model_selection import StratifiedKFold
+from sklearn.linear_model import LogisticRegression
 from Biologging_Toolkit.utils.whale_utils import successive_detections, sliding_window_sum
 
 class Whales():
@@ -115,6 +117,41 @@ class Whales():
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)
+
+    def logistic_regression(self, depids, ind_var = ['jerk','flash']):
+        """
+        Logistic regression to predict cetacean presence based on three classes : spermwhale, delphinid and baleen whales
+        Split is done using stratified K folds not on target but on independant variables
+
+        Parameters
+        ----------
+        depids : list of depids to keep from daily dataframe
+        ind_var : independant variables / column names to base regression on
+        """
+        X = pd.concat((self.daily[dep][ind_var] for dep in depids)).reset_index(drop = True)
+        y = pd.concat((self.daily[dep][['baleen', 'delphinid', 'spermwhale']] for dep in depids)).reset_index(drop = True)
+        y[y > 0] = 1
+        skf = StratifiedKFold(n_splits=4)
+        y_pred, y_label, X_label = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        for i, (train_index, test_index) in enumerate(skf.split(np.zeros(len(X)), X.mean(axis = 1).astype(int))):
+            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+            balreg = LogisticRegression(class_weight='balanced').fit(X_train, y_train['baleen'])
+            balpred = balreg.predict(X_test)
+            spermreg = LogisticRegression(class_weight='balanced').fit(X_train, y_train['spermwhale'])
+            spermpred = spermreg.predict(X_test)
+            delreg = LogisticRegression(class_weight='balanced').fit(X_train, y_train['delphinid'])
+            delpred = delreg.predict(X_test)
+            y_label = pd.concat((y_label, y_test))
+            X_label = pd.concat((X_label, X_test))
+            y_pred = pd.concat((y_pred, pd.DataFrame({'baleen':balpred, 'spermwhale':spermpred, 'delphinid':delpred})))
+        self.balreg = LogisticRegression(class_weight='balanced').fit(X, y['baleen'])
+        self.spermreg = LogisticRegression(class_weight='balanced').fit(X, y['spermwhale'])
+        self.delreg = LogisticRegression(class_weight='balanced').fit(X, y['delphinid'])
+        return y_label, y_pred, X_label
+
+    def random_forest(self, depids, ind_var = ['jerk','flash']):
+        pass
 
     def get_successive_detections(self):
         for key in self.annotations.keys():

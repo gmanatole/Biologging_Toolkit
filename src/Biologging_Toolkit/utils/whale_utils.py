@@ -27,7 +27,7 @@ def format_timestamps(depids, annotation_path):
             annot = pd.read_csv(os.path.join(annotation_path, depid, 'timestamps.csv'), delimiter=';')
         for col in ['Annotation', 'Annotation2', 'Annotation3']:
             _col = annot[col].astype(str).to_numpy()
-            _col[np.isin(_col, ['Antarctic Blue Whale', 'Antarctic blue whale', 'Blue whale ', 'Dcall'])] = 'ABW'
+            _col[np.isin(_col, ['Antarctic Blue Whale', 'Antarctic blue whale', 'Blue whale ', 'Blue whale', 'Dcall'])] = 'ABW'
             _col[np.isin(_col, ['Fin whale'])] = 'FW'
             _col[np.isin(_col, ['Humpback whale'])] = 'HW'
             _col[np.isin(_col, ['Minke whale'])] = 'MW'
