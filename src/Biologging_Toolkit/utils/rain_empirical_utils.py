@@ -7,8 +7,15 @@ import pandas as pd
 import seaborn as sns
 import scipy.signal as signal
 
+weather4_colors = {
+        "R": "#6666ff",
+        "WR": "#c27ba0",
+        "W": "#28d128",
+        "N": "#cccccc"
+        }
 
 def load_df(depid, path, feature, ignore_SPL=False):
+    
     df = pd.read_csv(path + f'/{depid}/{depid}_dive.csv')
     factor = 1000 if feature.startswith('tp') else 1
     df[feature] = df[feature]*factor
@@ -526,6 +533,38 @@ def plot_estimation_vs_ground_truth(df, depid, feature, rain_est):
     plt.title(f'{depid} estimation fit', fontsize=12, fontweight='bold', pad=20)
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)
+    plt.show()
+
+def plot_spl_rain(df):
+    colors = {
+        "R": "#6666ff",
+        "WR": "#c27ba0",
+        "W": "#28d128",
+        "N": "#cccccc"
+        }
+    combs = [("upwards_mean_5000","upwards_mean_15000"),
+            ("upwards_mean_8000","upwards_mean_15000"),
+        ("upwards_mean_8000","slope_2000_8000"),
+            ("upwards_mean_8000","slope_8000_15000")]
+
+    i=0
+    fig, ax = plt.subplots(1,4,figsize=(16, 3.5))
+    for comb in combs:
+        for weather_type, color in colors.items():
+            subset = df[df['weather'] == weather_type]
+            ax[i].scatter(
+                subset[comb[0]],
+                subset[comb[1]],
+                c=color,
+                alpha=0.5,
+                label=weather_type
+            )
+
+        ax[i].set_xlabel(comb[0])
+        ax[i].set_ylabel(comb[1])
+        ax[i].legend(title="Weather")
+        i+=1
+    plt.tight_layout()
     plt.show()
 
 def plot_spl_by_rain_type(df, freqs, precip_value, depid, fill=True):
