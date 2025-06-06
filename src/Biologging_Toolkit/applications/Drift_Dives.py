@@ -235,7 +235,7 @@ class DriftDives(Wrapper) :
 			#if (abs(vertical_speed_after) < speed_threshold) or abs((vertical_speed_before) < speed_threshold) :
 			#	dive_type[j] = 1
 
-	def acoustic_cluster(self, nfeatures = 15, timestep = 5, acoustic_path = None, min_cluster_size = 50, min_samples = 10, sort = False):
+	def acoustic_cluster(self, nfeatures = 15, timestep = 5, tmax = 15, acoustic_path = None, min_cluster_size = 50, min_samples = 10, sort = False, freq_sampling = 'log'):
 		"""
 		Perform unsupervised clustering on acoustic feature data using UMAP for dimensionality reduction
 		and HDBSCAN for clustering.
@@ -258,18 +258,18 @@ class DriftDives(Wrapper) :
 		    Whether or not to sort feature with increasing amplitude along temporal axis. Not implemented
 		"""
 		fns = glob(os.path.join(acoustic_path, '*'))
-		if nfeatures <= 20 :
+		if (nfeatures <= 20) and (freq_sampling == 'log'):
 			self.posfeatures = np.exp(np.arange(0, nfeatures) * np.log(513) / nfeatures).astype(int)
 		else :
-			self.posfeatures = np.linspace(0, 512, nfeatures).astype(int)
+			self.posfeatures = np.linspace(0, 512, max(1, 1//nfeatures)).astype(int)
 		X = []
 		_fns = []
 		start, stop = [], []
 		for fn in fns:
 			data = np.load(fn)
-			if data['len_spectro'] <= 15*20:
+			if data['len_spectro'] <= tmax*20:
 				continue
-			_data = data['spectro'][:15*20:timestep, self.posfeatures]
+			_data = data['spectro'][:tmax*20:timestep, self.posfeatures]
 			if np.isnan(_data).sum() != 0 :
 				continue
 			_fns.append(fn)
@@ -287,8 +287,8 @@ class DriftDives(Wrapper) :
 		self.start, self.stop = np.array(start), np.array(stop)
 
 	def save_cluster(self, cluster, overwrite = False) :
-		start = self.start[self.clusterer.labels_ == cluster]
-		stop = self.stop[self.clusterer.labels_ == cluster]
+		start = self.start[np.isin(self.clusterer.labels_, cluster)]
+		stop = self.stop[np.isin(self.clusterer.labels_, cluster)]
 		timestamps = self.ds['time'][:]
 		drifts = np.zeros((len(timestamps)))
 		for _start, _stop in zip(start, stop):
