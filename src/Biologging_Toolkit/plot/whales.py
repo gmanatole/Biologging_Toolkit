@@ -1,5 +1,7 @@
 import os.path
 from glob import glob
+import seaborn as sns
+import pandas as pd
 import matplotlib
 from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
@@ -12,6 +14,69 @@ import numpy as np
 import cartopy.crs as crs
 import cartopy.feature as cfeature
 import cartopy.io.shapereader as shpreader
+from sklearn import metrics
+
+def pairplot(w, vars = ['jerk']) :
+    pass
+
+def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
+    regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
+    colors = ['deeppink', 'gold', 'magenta']
+    if X_test.shape[1] == 2 :
+        fig, ax = plt.subplots(2, 3, figsize = (15,11))
+        for i, (feature, fixed) in enumerate(zip(['flash','jerk'],['jerk','flash'])) :
+            ax[i, 0].set_ylabel("Predicted Probability")
+            feature_range = np.linspace(X_test[feature].min(), X_test[feature].max(), 300)
+            fixed_mean = X_test[fixed].mean()
+            X_plot = pd.DataFrame({'jerk': feature_range, 'flash': fixed_mean})
+            for j, _class in enumerate(['baleen','delphinid','spermwhale']) :
+                if i == 0 :
+                    ax[i, j].set_title(f'{_class.capitalize()} prediction')
+                probs = getattr(whale, regression[_class]).predict_proba(X_plot)[:, 1]
+                ax[i,j].plot(feature_range, probs, c = colors[j])
+                ax[i,j].set_xlabel(f"Average {feature} per dive")
+                ax[i,j].scatter(X_test[feature], y_pred.delphinid, c = colors[j], edgecolor = 'gray', alpha = 0.9)
+                ax[i,j].grid(True)
+    elif X_test.shape[1] == 1 :
+        fig, ax = plt.subplots(1, 3, figsize = (15,6))
+        ax[0].set_ylabel("Predicted Probability")
+        feature_range = np.linspace(X_test.min(), X_test.max(), 300)
+        for j, _class in enumerate(['baleen','delphinid','spermwhale']) :
+            ax[j].set_title(f'{_class.capitalize()} prediction')
+            probs = getattr(whale, regression[_class]).predict_proba(feature_range)[:, 1]
+            ax[j].plot(feature_range, probs, c = colors[j])
+            ax[j].set_xlabel(f"Average {X_test.columns[0]} per dive")
+            ax[j].scatter(X_test, y_pred[_class], c = colors[j], edgecolor = 'gray', alpha = 0.9)
+            ax[j].grid(True)
+    fig.tight_layout()
+    if save :
+        fig.savefig(os.path.join(save_path, 'Logistic_regression_fits.pdf'))
+    fig.show()
+
+
+def prediction_conf_matrix(y_test, y_pred, save = False, save_path = '.', type = 'logistic'):
+    fig, ax = plt.subplots(1,3, figsize = (15, 5))
+    class_names = [0, 1]
+    for i, _class in enumerate(['baleen','spermwhale','delphinid']) :
+        ax[i].set_title(f'{_class.capitalize()} prediction')
+        cnf_matrix = metrics.confusion_matrix(y_test[_class], y_pred[_class], normalize = 'true')
+        tick_marks = np.arange(len(class_names))
+        ax[i].set_xticks(tick_marks, class_names)
+        ax[i].set_yticks(tick_marks, class_names)
+        sns.heatmap(pd.DataFrame(cnf_matrix), vmin = 0, vmax = 1, annot=True,
+                    cbar = False, square = True, cmap="YlGnBu", ax = ax[i])
+        ax[i].set_xlabel('Predicted label')
+    ax[0].set_ylabel('Actual label')
+    fig.subplots_adjust(right=0.85, left=0.05, bottom=0.05, top=0.95, wspace=0.08)
+    cax = fig.add_axes([0.87, 0.15, 0.02, 0.7])
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=1)
+    sm = plt.cm.ScalarMappable(cmap="YlGnBu", norm=norm)
+    sm.set_array([])
+    fig.colorbar(sm, cax=cax, label='Normalized accuracy')
+    fig.show()
+    if save :
+        fig.savefig(os.path.join(save_path, f'{type}_matrix_whales.pdf'))
+
 
 def bubble_map(whale, depid, colorbar = True, legend_loc = 'upper left', save = True, save_path = '.'):
     fig, ax = plt.subplots(2, 2, figsize=(12, 6), subplot_kw={'projection': crs.PlateCarree()})
