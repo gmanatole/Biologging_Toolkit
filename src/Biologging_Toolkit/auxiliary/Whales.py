@@ -1,5 +1,6 @@
 import os
 import pickle
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
 from typing import Union, List
@@ -110,15 +111,86 @@ class Whales():
             aux['time'] = np.array([ds['time'][:].data[dives == _dive][0].item() for _dive in aux.dives])
             aux['jerk'] = np.array([np.nansum(ds['jerk'][:].data[dives == _dive] >= 400) for _dive in aux.dives])
             aux['flash'] = np.array([np.nansum(ds['flash'][:].data[:,2][dives == _dive]) for _dive in aux.dives])
+            aux['temp'] = np.array([np.nanmean(ds['temperature'][:].data[dives == _dive]) for _dive in aux.dives])
             aux['date'] = pd.to_datetime(aux['time'], unit='s').dt.date
             aux = aux.groupby('date').agg('mean').reset_index()
-            self.daily[depid] = pd.merge(self.daily[depid], aux[['date','jerk','flash']], on='date', how='left')
+            self.daily[depid] = pd.merge(self.daily[depid], aux[['date','jerk','flash', 'temp']], on='date', how='left')
             self.pos[depid] = pd.DataFrame({'lat':ds['lat'][:].data[::100], 'lon':ds['lon'][:].data[::100]})
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)
 
-    def logistic_regression(self, depids, ind_var = ['jerk','flash']):
+    def join_CTD(self, paths : Union[List, str], save = False, save_path = '.'):
+        for path, depid in zip(paths, self.depid) :
+            try :
+                ctd_ds = nc.Dataset(path)
+            except FileNotFoundError :
+                continue
+            ctd_time = np.array(
+                [(datetime(1950, 1, 1, 0, 0, 0) + timedelta(elem)).replace(tzinfo=timezone.utc).timestamp() for elem in
+                 ctd_ds['JULD'][:].data])
+            if np.all(ctd_ds['TEMP_ADJUSTED'][:].mask):
+                temp_var = 'TEMP'
+            else:
+                temp_var = 'TEMP_ADJUSTED'
+            temp = ctd_ds[temp_var][:].data
+            temp[ctd_ds[temp_var][:].mask] = np.nan
+            ctd, surface = [], []
+            for profile in temp:
+                try:
+                    ctd.append(np.nanmean(profile))
+                    surface.append(profile[10])
+                except ValueError:
+                    ctd.append(np.nan)
+                    surface.append(np.nan)
+            temp_df = pd.DataFrame({'time':ctd_time, 'ctd':ctd, 'surface':surface})
+            temp_df['date'] = pd.to_datetime(temp_df['time'], unit='s').dt.date
+            temp_df = temp_df.groupby('date').agg('mean').reset_index()
+            self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'ctd', 'surface']], on='date', how='left')
+            _temp = self.daily[depid]['temp'].to_numpy()
+            try:
+                _temp[~np.isnan(self.daily[depid]['ctd'].to_numpy())] = np.isnan(self.daily[depid]['ctd'].to_numpy())[
+                    ~np.isnan(self.daily[depid]['ctd'].to_numpy())]
+            except:
+                pass
+            self.daily[depid]['temperature'] = np.nan_to_num(_temp)
+        if save :
+            with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
+                pickle.dump(self.daily, f)
+    def simple_logistic_regression(self, depids, ind_var = 'jerk'):
+        """
+        Logistic regression to predict cetacean presence based on three classes : spermwhale, delphinid and baleen whales
+        Split is done using stratified K folds not on target but on independant variables
+
+        Parameters
+        ----------
+        depids : list of depids to keep from daily dataframe
+        ind_var : independant variables / column names to base regression on
+        """
+        X = pd.DataFrame(pd.concat((self.daily[dep][ind_var] for dep in depids)).reset_index(drop = True))
+        y = pd.concat((self.daily[dep][['baleen', 'delphinid', 'spermwhale']] for dep in depids)).reset_index(drop = True)
+        combined = pd.concat([X, y], axis=1)
+        combined = combined.dropna().reset_index(drop = True)
+        X = combined[X.columns]
+        y = combined[y.columns]
+        y[y > 0] = 1
+        skf = StratifiedKFold(n_splits=4)
+        y_pred = y.copy()
+        for j, _class in enumerate(['baleen','delphinid','spermwhale']):
+            for i, (train_index, test_index) in enumerate(skf.split(np.zeros(len(X)), y[_class])):
+                X_train, X_test = X.loc[train_index], X.loc[test_index]
+                y_train, y_test = y.loc[train_index], y.loc[test_index]
+                if np.count_nonzero(y_train[_class]) == 0:
+                    continue
+                logreg = LogisticRegression(class_weight='balanced').fit(X_train, y_train[_class])
+                pred = logreg.predict(X_test)
+                y_pred.loc[test_index, _class] = pred
+        self.balreg = LogisticRegression(class_weight='balanced').fit(X, y['baleen'])
+        self.spermreg = LogisticRegression(class_weight='balanced').fit(X, y['spermwhale'])
+        self.delreg = LogisticRegression(class_weight='balanced').fit(X, y['delphinid'])
+        return y, y_pred, X
+
+    def logistic_regression(self, depids, ind_var = ['jerk','flash'], ref = 'label'):
         """
         Logistic regression to predict cetacean presence based on three classes : spermwhale, delphinid and baleen whales
         Split is done using stratified K folds not on target but on independant variables
@@ -133,7 +205,11 @@ class Whales():
         y[y > 0] = 1
         skf = StratifiedKFold(n_splits=4)
         y_pred, y_label, X_label = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-        for i, (train_index, test_index) in enumerate(skf.split(np.zeros(len(X)), X.mean(axis = 1).astype(int))):
+        if ref == 'label' :
+            skf_ref = y
+        else :
+            skf_ref = X.mean(axis = 1).astype(int) if isinstance(ind_var, list) else X.astype(int)
+        for i, (train_index, test_index) in enumerate(skf.split(np.zeros(len(X)), skf_ref)):
             X_train, X_test = X.iloc[train_index], X.iloc[test_index]
             y_train, y_test = y.iloc[train_index], y.iloc[test_index]
             balreg = LogisticRegression(class_weight='balanced').fit(X_train, y_train['baleen'])
@@ -160,3 +236,11 @@ class Whales():
     def get_window_sum(self):
         for key in self.annotations.keys():
             self.annotations[key] = sliding_window_sum(self.annotations[key])
+
+    def load_data(self, annotation_path = None, daily_path = None):
+        if annotation_path is not None :
+            with open(annotation_path, "rb") as input_file:
+                self.annotations = pickle.load(input_file)
+        if daily_path is not None :
+            with open(daily_path, "rb") as input_file:
+                self.daily = pickle.load(input_file)
