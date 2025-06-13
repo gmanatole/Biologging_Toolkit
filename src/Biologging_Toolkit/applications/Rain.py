@@ -34,8 +34,12 @@ class Rain():
 
 		"""
 		"""
+		
 		self.depid = depid
 		self.path = path
+		self.split_method = split_method
+		self.test_depid = test_depid
+
 		if acoustic_path :
 			self.acoustic_path = acoustic_path
 		else :
@@ -56,14 +60,6 @@ class Rain():
 
 		self.calculate_and_add_slope(2000,8000)
 		self.calculate_and_add_slope(8000,15000)
-
-		if split_method == 'depid':
-			train_split, test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, test_depid = test_depid)
-			self.train_split = train_split[1]
-			self.test_split = test_split[1]
-		else :
-			self.train_split, self.test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, split = nsplit)
-		self.popt, self.rain_model_stats = {}, {}
 
 		wind_tresh = 7
 		conditions = [
@@ -124,6 +120,14 @@ class Rain():
 
 		self.df["Rain_Type"] = np.select(conditions, choices, default="N+WR")
 		self.df_r = self.df.loc[self.df["Rain_Type_preds"]=="R"].copy()
+
+		if self.split_method == 'depid':
+			train_split, test_split = get_train_test_split(self.df_r.fns.to_numpy(), self.df_r.index.to_numpy(), self.df_r.depid.to_numpy(), method = self.split_method, test_depid = self.test_depid)
+			self.train_split = train_split[1]
+			self.test_split = test_split[1]
+		else :
+			self.train_split, self.test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, split = nsplit)
+		self.popt, self.rain_model_stats = {}, {}
 
 	def calculate_and_add_slope(self, freq1, freq2):
 		slope_column_name = f"slope_{freq1}_{freq2}"
