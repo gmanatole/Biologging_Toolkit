@@ -8,6 +8,9 @@ def logarithmic(x, a, b, offset):
 def quadratic(x, a, b, c, offset):
     return a * (x - offset) ** 2 + b * (x - offset) + c
 
+def logRR(x, a, b):
+    return 10**((x + a)/b)
+
 
 empirical = {
     "Hildebrand": {
@@ -22,4 +25,13 @@ empirical = {
         "averaging_duration": 4.5,
         "parameters": {"a": 0.044642, "b": -3.2917, "c": 63.016},
     },
+}
+
+empirical_rain = {
+    "Nystuen" : {
+        "frequency": "upwards_mean_5000",
+        "function" : logRR,
+        "averaging_duration": 4.5,
+        "parameters": {"a": 42.5, "b": 15.2},
+    }
 }

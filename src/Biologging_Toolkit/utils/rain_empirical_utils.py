@@ -6,6 +6,8 @@ from datetime import datetime
 import pandas as pd
 import seaborn as sns
 import scipy.signal as signal
+from sympy import Symbol, expand
+from sklearn.metrics import confusion_matrix
 
 weather4_colors = {
         "R": "#6666ff",
@@ -506,7 +508,6 @@ def objective_DE_Nystuen_2014(trial, df):
     df_pred = DE_Nystuen_2014(df, **params)
     return 1.0 - f1_score(df["Rain_Type"], df_pred["Rain_Type_Preds"], average="weighted")  
 
-
 #---------------------------#
 #           PLOT            #
 #---------------------------#
@@ -539,7 +540,7 @@ def plot_spl_rain(df):
     colors = {
         "R": "#6666ff",
         "WR": "#c27ba0",
-        "W": "#28d128",
+        # "W": "#28d128",
         "N": "#cccccc"
         }
     combs = [("upwards_mean_5000","upwards_mean_15000"),
@@ -775,3 +776,133 @@ def plot_RainSourcesDifferences_scatter(depid,path, source1="tpmaxPool", source2
     plt.tight_layout()
     plt.show()
 
+def plot_classification_spl(df):
+    df = df.dropna(subset=["Rain_Type_preds", "Rain_Type"]).copy()
+
+    color_map = {"R": "royalblue", "N+WR": "lightgrey"}
+    combs = [
+        ("upwards_mean_5000", "upwards_mean_15000"),
+        ("upwards_mean_8000", "upwards_mean_15000"),
+        ("upwards_mean_8000", "slope_2000_8000"),
+        ("upwards_mean_8000", "slope_8000_15000")
+    ]
+
+    # Préparer les sous-groupes
+    groups = {
+        "True Positives": df[df["Rain_Type_preds"] == "R"],
+        "True Negatives": df[df["Rain_Type_preds"] != "R"],
+        "False Positives": df[(df["Rain_Type_preds"] == "R") & (df["Rain_Type"] != "R")],
+        "False Negatives": df[(df["Rain_Type_preds"] != "R") & (df["Rain_Type"] == "R")]
+    }
+
+    colors = {
+        "True Positives": "royalblue",
+        "True Negatives": "lightgrey",
+        "False Positives": "orange",
+        "False Negatives": "red"
+    }
+
+    fig, ax = plt.subplots(1, 4, figsize=(16, 4.1))
+
+    for i, (x, y) in enumerate(combs):
+        for label, data in groups.items():
+            ax[i].scatter(
+                data[x],
+                data[y],
+                c=colors[label],
+                alpha=0.5,
+                label=label
+            )
+        ax[i].set_xlabel(x)
+        ax[i].set_ylabel(y)
+
+    # Extraire légende depuis le premier subplot
+    handles, labels = ax[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=4)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
+def plot_classification_histogram(df):
+    df_r_tp = df[(df["Rain_Type"]=="R") & (df["Rain_Type_preds"]=="R")].copy()
+    df_r_tn = df[(df["Rain_Type"]=="N+WR") & (df["Rain_Type_preds"]=="N+WR")].copy()
+    df_r_fp = df[(df["Rain_Type"]=="N+WR") & (df["Rain_Type_preds"]=="R")].copy()
+    df_r_fn = df[(df["Rain_Type"]=="R") & (df["Rain_Type_preds"]=="N+WR")].copy()
+
+    sns.histplot(data=df_r_tp, x="precipitation_GPM", fill=True, alpha=0.6, label='True Positives', color="darkgray", kde=False, edgecolor=None)
+    sns.histplot(data=df_r_fn, x="precipitation_GPM", fill=True, alpha=0.6, label='False Negatives', color="red", kde=False, edgecolor=None)
+    # sns.histplot(data=df_r_tn, x="precipitation_GPM", fill=True, alpha=0.0006, label='True Negatives', color="darkorange", kde=True, edgecolor=None)
+    # sns.histplot(data=df_r_fp, x="precipitation_GPM", fill=True, alpha=0.6, label='False Positives', color = "royalblue", kde=True, edgecolor=None)
+    
+    leg = plt.legend()
+    for lh in leg.legend_handles:
+        lh.set_alpha(1)
+
+    plt.xlim(0,8)
+    plt.grid(True, linestyle="--", alpha=0.3)
+
+def plot_weather_SPL_regression(df, x = "upwards_mean_8000", y = "slope_8000_15000", height=5) :
+    df = df.reset_index(drop=True).copy()
+    polydeg = 1
+    quant_val = 0.8
+
+    quantile_df = pd.DataFrame({})
+    for bin in range(-55, -25, 5):
+        _df = df[(df[x] > bin) & (df[x] < bin + 5)]
+        threshold = _df[y].quantile(quant_val)
+        _df.loc[_df[y] > threshold, y] = np.nan
+        _df = _df.dropna(subset=[x, y])
+        quantile_df = pd.concat([quantile_df, _df])
+
+    model = np.poly1d(np.polyfit(quantile_df[x], quantile_df[y], polydeg))
+    x_Symb = Symbol(x)
+
+    palette = {
+        'N': 'gray',
+        'WR': 'purple',
+        'R': 'blue',
+        # 'W': 'green'
+    }
+
+    g = sns.JointGrid(data=df, x=x, y=y, hue='weather', palette=weather4_colors, height=height)
+
+    for weather_type, color in palette.items():
+        if weather_type != "W" :
+            subset = df[df['weather'] == weather_type]
+            g.ax_joint.scatter(subset[x], subset[y], c=color, alpha=0.4 if weather_type=='N' else 0.6, label=weather_type)
+
+    x_vals = np.linspace(df[x].min(), df[x].max(), 100)
+    y_vals = model(x_vals)
+    g.ax_joint.plot(x_vals, y_vals, ':', color="black", linewidth=2)
+
+    for weather_type, color in palette.items():
+        subset = df[df['weather'] == weather_type]
+        sns.kdeplot(data=subset, y=y, ax=g.ax_marg_y, fill=True, alpha=0.6, color=color)
+
+    g.ax_joint.set_xlabel("SPL averaged at 5KHz", fontsize=14)
+    g.ax_joint.set_ylabel("SPL averaged at 15KHz", fontsize=14)
+    g.ax_joint.legend(title="Weather")
+
+
+    plt.show()
+    print(f"{y} = {expand(model(x_Symb))}")
+    a, b = model.coefficients
+    print(f"y = {a} * x + {b}")
+
+def plot_confusion_matrix(df):
+    conditions = [
+        (df["precipitation_GPM"] > 0.1) & (df["wind_speed"] < 7)
+    ]
+    choices = ["R"]
+    df["Rain_Type"] = np.select(conditions, choices, default="N+WR")
+
+    cm = confusion_matrix(df["Rain_Type"], df["Rain_Type_preds"], normalize="true")
+
+
+    labels = df["Rain_Type"].unique()
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, cmap='Blues', xticklabels=labels, yticklabels=labels)#, fmt='d' )
+    plt.xlabel("Predicted Label")
+    plt.ylabel("True Label")
+    plt.show()
