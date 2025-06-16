@@ -14,6 +14,10 @@ from glob import glob
 from tqdm import tqdm
 from sympy import Symbol,expand
 
+def rain_scale(x):
+    return next((i for i, limit in enumerate([0.3, 1.0, 4.0, 16.0, 50.0]) if x < limit), 5)
+
+
 class Rain():
 
 	seq_length = 800
@@ -29,7 +33,10 @@ class Rain():
 		split_method : str = 'depid',
 		nsplit : float = 0.8,
 		test_depid : Union[str, List] = 'ml17_280a',
-		df_data = "csv"
+		df_data = "csv",
+		empirical_offset = 1.25,
+		optimised_tresh = True,
+		frequency = 5000
 		):
 
 		"""
@@ -39,6 +46,8 @@ class Rain():
 		self.path = path
 		self.split_method = split_method
 		self.test_depid = test_depid
+		self.ground_truth = "IMERG (GPM NASA)"
+		self.frequency = frequency
 
 		if acoustic_path :
 			self.acoustic_path = acoustic_path
@@ -51,6 +60,7 @@ class Rain():
 			self.path = [self.path]
 			self.acoustic_path = [self.acoustic_path]
 
+		self.method_name = method
 		self.method = empirical_rain[method]
 		if data : 
 			self.method['frequency'] = data
@@ -65,12 +75,24 @@ class Rain():
 		conditions = [
 			(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] < wind_tresh),
 			(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] >= wind_tresh),
-			# (df["precipitation_GPM"] <= 0.1) & (df["wind_speed"] >= 7)
 		]
-		choices = ["R", "WR"]#, "W"]
+		choices = ["R", "WR"]
 		self.df["weather"] = np.select(conditions, choices, default="N")
+		
+		self.classify_rain(offset=empirical_offset, optimised_tresh=optimised_tresh)
+		
+		self.df_r = self.df.loc[self.df["Rain_Type_preds"]=="R"].copy()
+		self.df_r = self.df_r.dropna(subset = ['precipitation_GPM', f"upwards_mean_{frequency}"])
+		self.df_r = self.df_r.reset_index(drop=True)
 
-		# self.df = self.df.dropna(subset=["precipitation_GPM","upwards_mean_5000","upwards_mean_8000","upwards_mean_15000","slope_2000_8000","slope_8000_15000"])
+		if self.split_method == 'depid':
+			train_split, test_split = get_train_test_split(self.df_r.fns.to_numpy(), self.df_r.index.to_numpy(), self.df_r.depid.to_numpy(), method = self.split_method, test_depid = self.test_depid)
+			self.train_split = train_split[1]
+			self.test_split = test_split[1]
+		else :
+			self.train_split, self.test_split = get_train_test_split(self.df_r.fns.to_numpy(), self.df_r.index.to_numpy(), self.df_r.depid.to_numpy(), method = split_method, split = nsplit)
+		self.popt, self.rain_model_stats = {}, {}
+
 
 	def classify_rain(self, offset = 1.25, optimised_tresh=False):
 		combinations = [("upwards_mean_5000","upwards_mean_15000"),("upwards_mean_8000","upwards_mean_15000"),("upwards_mean_8000","slope_8000_15000")]
@@ -119,15 +141,6 @@ class Rain():
 		choices = ["R"]
 
 		self.df["Rain_Type"] = np.select(conditions, choices, default="N+WR")
-		self.df_r = self.df.loc[self.df["Rain_Type_preds"]=="R"].copy()
-
-		if self.split_method == 'depid':
-			train_split, test_split = get_train_test_split(self.df_r.fns.to_numpy(), self.df_r.index.to_numpy(), self.df_r.depid.to_numpy(), method = self.split_method, test_depid = self.test_depid)
-			self.train_split = train_split[1]
-			self.test_split = test_split[1]
-		else :
-			self.train_split, self.test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = split_method, split = nsplit)
-		self.popt, self.rain_model_stats = {}, {}
 
 	def calculate_and_add_slope(self, freq1, freq2):
 		slope_column_name = f"slope_{freq1}_{freq2}"
@@ -201,7 +214,7 @@ class Rain():
 			print('-----------\nThe model has the following performance :')
 			for key, value in self.rain_model_stats.items():
 				print(f"{key} : {value}")
-			return "You can plot your estimation using the plot_estimation() method"
+			return""# "You can plot your estimation using the following methods : \nR_Utils.plot_rain_estimation(inst)\nR_Utils.plot_rain_estimation_cumulated(inst)"
 		else :
 			print('Model has not been fitted to any data yet.\nWill be fitted with following parameters : \n')
 			for key, value in self.method.items():
@@ -214,28 +227,24 @@ class Rain():
 		if 'bounds' not in params.keys():
 			params['bounds'] = np.hstack((np.array([[value-params['scaling_factor']*abs(value), value+params['scaling_factor']*abs(value)] for value in self.method['parameters'].values()]).T, [[-np.inf],[np.inf]]))
 		
-		if 'Rain_Type_preds' not in self.df.columns :
+		if 'Rain_Type_preds' not in self.df_r.columns :
 			raise Exception("You must use self.classify() first before trying to estimate") 
-		
-		invalid_train = set(self.train_split) - set(self.df_r.index)
-		invalid_test = set(self.test_split) - set(self.df_r.index)
+	
+		trainset = self.df_r.loc[self.train_split]
+		testset = self.df_r.loc[self.test_split]
+		popt, popv = curve_fit(self.method['function'], trainset[f"upwards_mean_{self.frequency}"].to_numpy(), trainset['precipitation_GPM'].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
+		estimation = self.method['function'](testset[f"upwards_mean_{self.frequency}"].to_numpy(), *popt)
 
-		print("Invalid train indices:", invalid_train)
-		print("Invalid test indices:", invalid_test)
-
-
-		trainset = self.df_r.loc[self.train_split].dropna(subset = ['precipitation_GPM', self.method['frequency']])
-		testset = self.df_r.loc[self.test_split].dropna(subset = ['precipitation_GPM', self.method['frequency']])
-		popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), trainset['precipitation_GPM'].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
-		estimation = self.method['function'](testset[self.method['frequency']].to_numpy(), *popt)
 		mae = metrics.mean_absolute_error(testset['precipitation_GPM'], estimation)
 		rmse = metrics.root_mean_squared_error(testset['precipitation_GPM'], estimation)
 		r2 = metrics.r2_score(testset['precipitation_GPM'], estimation)
 		var = np.var(abs(testset['precipitation_GPM'])-abs(estimation))
 		std = np.std(abs(testset['precipitation_GPM'])-abs(estimation))
+		cc = np.corrcoef(testset['precipitation_GPM'], estimation)[0][1]
+
 		self.df_r.loc[testset.index, 'depid_estimation'] = estimation
 		self.popt.update({'depid_fit' : popt})
-		self.rain_model_stats.update({'depid_mae':mae, 'depid_rmse':rmse, 'depid_r2':r2, 'depid_var':var, 'depid_std':std})
+		self.rain_model_stats.update({'depid_mae':mae, 'depid_rmse':rmse, 'depid_r2':r2, 'depid_var':var, 'depid_std':std,'depid_cc':cc})
 	
 	def temporal_fit(self, **kwargs):
 
@@ -243,20 +252,24 @@ class Rain():
 		params = {**default, **kwargs}
 		if 'bounds' not in params.keys():
 			params['bounds'] = np.hstack((np.array([[value-params['scaling_factor']*abs(value), value+params['scaling_factor']*abs(value)] for value in self.method['parameters'].values()]).T, [[-np.inf],[np.inf]]))
-		self.df['temporal_estimation'] = np.nan
-		self.df = self.df.dropna(subset = [self.method['frequency'], 'precipitation_GPM'])
-		trainset = self.df.iloc[:int(params['split']*len(self.df))]
-		testset = self.df.iloc[int(params['split']*len(self.df)):]
-		popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), trainset['precipitation_GPM'].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
-		estimation = self.method['function'](testset[self.method['frequency']].to_numpy(), *popt)
+		self.df_r['temporal_estimation'] = np.nan
+		self.df_r = self.df_r.dropna(subset = [f"upwards_mean_{self.frequency}", 'precipitation_GPM'])
+		
+		trainset = self.df_r.iloc[:int(params['split']*len(self.df_r))]
+		testset = self.df_r.iloc[int(params['split']*len(self.df_r)):]
+		popt, popv = curve_fit(self.method['function'], trainset[f"upwards_mean_{self.frequency}"].to_numpy(), trainset['precipitation_GPM'].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
+		estimation = self.method['function'](testset[f"upwards_mean_{self.frequency}"].to_numpy(), *popt)
+		
 		mae = metrics.mean_absolute_error(testset['precipitation_GPM'], estimation)
 		rmse = metrics.root_mean_squared_error(testset['precipitation_GPM'], estimation)
 		r2 = metrics.r2_score(testset['precipitation_GPM'], estimation)
 		var = np.var(abs(testset['precipitation_GPM'])-abs(estimation))
 		std = np.std(abs(testset['precipitation_GPM'])-abs(estimation))
-		self.df.loc[testset.index, 'temporal_estimation'] = estimation
+		cc = np.corrcoef(testset['precipitation_GPM'], estimation)[0][1]
+
+		self.df_r.loc[testset.index, 'temporal_estimation'] = estimation
 		self.popt.update({'temporal_fit' : popt})
-		self.rain_model_stats.update({'temporal_mae':mae, 'temporal_rmse':rmse, 'temporal_r2':r2, 'temporal_var':var, 'temporal_std':std})
+		self.rain_model_stats.update({'temporal_mae':mae, 'temporal_rmse':rmse, 'temporal_r2':r2, 'temporal_var':var, 'temporal_std':std,'temporal_cc':cc})
 
 	def skf_fit(self, **kwargs):
 		'''
@@ -270,26 +283,27 @@ class Rain():
 			params['bounds'] = np.hstack((np.array([[value-params['scaling_factor']*abs(value), value+params['scaling_factor']*abs(value)] for value in self.method['parameters'].values()]).T, [[-np.inf],[np.inf]]))
 		popt_tot, popv_tot = [], []
 		mae, rmse, r2, var, std = [], [], [], [], []
-		self.df['classes'] = self.df['precipitation_GPM'].apply(beaufort)
-		self.df['skf_estimation'] = np.nan
-		self.df = self.df.dropna(subset = [self.method['frequency'], 'precipitation_GPM'])
+		self.df_r['classes'] = self.df_r['precipitation_GPM'].apply(rain_scale)
+		self.df_r['skf_estimation'] = np.nan
+		self.df_r = self.df_r.dropna(subset = [f"upwards_mean_{self.frequency}", 'precipitation_GPM'])
 		skf = StratifiedKFold(n_splits=params['n_splits'])
-		for i, (train_index, test_index) in enumerate(skf.split(self.df[self.method['frequency']], self.df.classes)):
-			trainset = self.df.iloc[train_index]
-			testset = self.df.iloc[test_index]
-			popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), 
+		for i, (train_index, test_index) in enumerate(skf.split(self.df_r[f"upwards_mean_{self.frequency}"], self.df_r.classes)):
+			trainset = self.df_r.iloc[train_index]
+			testset = self.df_r.iloc[test_index]
+			popt, popv = curve_fit(self.method['function'], trainset[f"upwards_mean_{self.frequency}"].to_numpy(), 
 						  trainset['precipitation_GPM'].to_numpy(), bounds = params['bounds'], maxfev = params['maxfev'])
 			popt_tot.append(popt)
 			popv_tot.append(popv)
-			estimation = self.method['function'](testset[self.method['frequency']].to_numpy(), *popt)
+			estimation = self.method['function'](testset[f"upwards_mean_{self.frequency}"].to_numpy(), *popt)
 			mae.append(metrics.mean_absolute_error(testset['precipitation_GPM'], estimation))
 			rmse.append(metrics.root_mean_squared_error(testset['precipitation_GPM'], estimation))
 			r2.append(metrics.r2_score(testset['precipitation_GPM'], estimation))
 			var.append(np.var(abs(testset['precipitation_GPM'])-abs(estimation)))
 			std.append(np.std(abs(testset['precipitation_GPM'])-abs(estimation)))
-			self.df.loc[testset.index, 'skf_estimation'] = estimation
+			cc = np.corrcoef(testset['precipitation_GPM'], estimation)[0][1]
+			self.df_r.loc[testset.index, 'skf_estimation'] = estimation
 		self.popt.update({'skf_fit' : np.mean(popt_tot, axis=0)})
-		self.rain_model_stats.update({'skf_mae':np.mean(mae), 'skf_rmse':np.mean(rmse), 'skf_r2':np.mean(r2), 'skf_var':np.mean(var), 'skf_std':np.mean(std)})
+		self.rain_model_stats.update({'skf_mae':np.mean(mae), 'skf_rmse':np.mean(rmse), 'skf_r2':np.mean(r2), 'skf_var':np.mean(var), 'skf_std':np.mean(std), 'skf_cc':np.mean(cc)})
 
 
 

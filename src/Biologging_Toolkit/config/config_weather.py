@@ -29,7 +29,7 @@ empirical = {
 
 empirical_rain = {
     "Nystuen" : {
-        "frequency": 5000,#"upwards_mean_5000",
+        "frequency": "upwards_mean_5000",
         "function" : logRR,
         "averaging_duration": 4.5,
         "parameters": {"a": 42.5, "b": 15.2},

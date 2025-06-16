@@ -9,6 +9,10 @@ import scipy.signal as signal
 from sympy import Symbol, expand
 from sklearn.metrics import confusion_matrix
 
+import sys, os
+sys.path.append('../src/')
+from Biologging_Toolkit.applications.Rain import Rain
+
 weather4_colors = {
         "R": "#6666ff",
         "WR": "#c27ba0",
@@ -906,3 +910,38 @@ def plot_confusion_matrix(df):
     plt.xlabel("Predicted Label")
     plt.ylabel("True Label")
     plt.show()
+
+
+def plot_rain_estimation_cumulated(inst:Rain):
+
+    
+    time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.test_split], unit='s')
+
+    gt_values = inst.df_r["precipitation_GPM"].loc[inst.test_split].values
+    gt_cumulated = np.cumsum(gt_values)
+    plt.plot(time, gt_cumulated, label="IMERG (GPM NASA)")
+
+    for split_rule in inst.popt :
+        a, b = inst.popt[split_rule]
+        est = inst.method["function"](inst.df_r["upwards_mean_5000"], a, b)
+        est_values = est.loc[inst.test_split].values
+        est_cumulated = np.cumsum(est_values)
+        plt.plot(time, est_cumulated,label=f'Estimation {inst.method_name} (split:{split_rule})')
+        
+        
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d%b'))
+    plt.ylabel("Cumulated precipitation (mm/h)")
+    plt.legend()
+
+def plot_rain_estimation(inst:Rain):
+    time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.test_split], unit='s')
+    plt.plot(time,inst.df_r["precipitation_GPM"].loc[inst.test_split], label="IMERG (GPM NASA)")
+
+    for split_rule in inst.popt :
+        a, b = inst.popt[split_rule]
+        est = inst.method["function"](inst.df_r["upwards_mean_5000"], a, b)
+        plt.plot(time,est.loc[inst.test_split], label=f'Estimation {inst.method_name} (split:{split_rule})')
+
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d%b'))
+    plt.ylabel("Precipitation (mm/h)")
+    plt.legend()
