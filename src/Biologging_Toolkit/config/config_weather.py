@@ -11,6 +11,8 @@ def quadratic(x, a, b, c, offset):
 def logRR(x, a, b):
     return 10**((x + a)/b)
 
+def logRRoffset(x,a,b,offset):
+    return 10**((x - a + offset)/b)
 
 empirical = {
     "Hildebrand": {
@@ -32,6 +34,30 @@ empirical_rain = {
         "frequency": "upwards_mean_5000",
         "function" : logRR,
         "averaging_duration": 4.5,
+        "parameters": {"a": 51.9, "b": 10.6},
+    },
+    "Nystuen1997" : {
+        "frequency": "upwards_mean_5000",
+        "function" : logRRoffset,
+        "averaging_duration": 4.5,
+        "parameters": {"a": 51.9, "b": 10.6},
+    },
+    "Nystuen2004" : {
+        "frequency": "upwards_mean_5000",
+        "function" : logRRoffset,
+        "averaging_duration": 4.5,
         "parameters": {"a": 42.5, "b": 15.2},
+    },
+    "Pensieri2015" : {
+        "frequency": "upwards_mean_5000",
+        "function" : logRRoffset,
+        "averaging_duration": 4.5,
+        "parameters": {"a": 64.4, "b": 25},
+    },
+    "Nystuen2015" : {
+        "frequency": "upwards_mean_5000",
+        "function" : logRRoffset,
+        "averaging_duration": 4.5,
+        "parameters": {"a": 44.35, "b": 30.77},
     }
 }

@@ -8,6 +8,10 @@ import seaborn as sns
 import scipy.signal as signal
 from sympy import Symbol, expand
 from sklearn.metrics import confusion_matrix
+import sklearn.metrics as metrics
+
+import matplotlib.cm as cm
+from tqdm import tqdm
 
 import sys, os
 sys.path.append('../src/')
@@ -883,8 +887,8 @@ def plot_weather_SPL_regression(df, x = "upwards_mean_8000", y = "slope_8000_150
         subset = df[df['weather'] == weather_type]
         sns.kdeplot(data=subset, y=y, ax=g.ax_marg_y, fill=True, alpha=0.6, color=color)
 
-    g.ax_joint.set_xlabel("SPL averaged at 5KHz", fontsize=14)
-    g.ax_joint.set_ylabel("SPL averaged at 15KHz", fontsize=14)
+    g.ax_joint.set_xlabel(x, fontsize=14)
+    g.ax_joint.set_ylabel(y, fontsize=14)
     g.ax_joint.legend(title="Weather")
 
 
@@ -912,19 +916,28 @@ def plot_confusion_matrix(df):
     plt.show()
 
 
-def plot_rain_estimation_cumulated(inst:Rain):
+def plot_rain_estimation_cumulated(inst:Rain, subset = "test"):
 
+    if subset == "test" :
+        time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.test_split], unit='s')
+        gt_values = inst.df_r["precipitation_GPM"].loc[inst.test_split].values
+
+    elif subset == "train":
+        time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.train_split], unit='s')
+        gt_values = inst.df_r["precipitation_GPM"].loc[inst.train_split].values
+
+    else :
+        time = pd.to_datetime(inst.df_r["begin_time"], unit='s')
+        gt_values = inst.df_r["precipitation_GPM"].values
     
-    time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.test_split], unit='s')
 
-    gt_values = inst.df_r["precipitation_GPM"].loc[inst.test_split].values
     gt_cumulated = np.cumsum(gt_values)
     plt.plot(time, gt_cumulated, label="IMERG (GPM NASA)")
 
     for split_rule in inst.popt :
         a, b = inst.popt[split_rule]
         est = inst.method["function"](inst.df_r["upwards_mean_5000"], a, b)
-        est_values = est.loc[inst.test_split].values
+        est_values = est.loc[inst.test_split].values if subset=="test" else est.loc[inst.train_split].values if subset=='train' else est.values
         est_cumulated = np.cumsum(est_values)
         plt.plot(time, est_cumulated,label=f'Estimation {inst.method_name} (split:{split_rule})')
         
@@ -933,15 +946,73 @@ def plot_rain_estimation_cumulated(inst:Rain):
     plt.ylabel("Cumulated precipitation (mm/h)")
     plt.legend()
 
-def plot_rain_estimation(inst:Rain):
-    time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.test_split], unit='s')
-    plt.plot(time,inst.df_r["precipitation_GPM"].loc[inst.test_split], label="IMERG (GPM NASA)")
+def plot_rain_estimation(inst:Rain, subset = "test"):
+
+    if subset == "test" :
+        time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.test_split], unit='s')
+        plt.plot(time,inst.df_r["precipitation_GPM"].loc[inst.test_split], label="IMERG (GPM NASA)")
+        
+    elif subset == "train":
+        time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.train_split], unit='s')
+        plt.plot(time,inst.df_r["precipitation_GPM"].loc[inst.train_split], label="IMERG (GPM NASA)")
+
+    else :
+        time = pd.to_datetime(inst.df_r["begin_time"], unit='s')
+        plt.plot(time,inst.df_r["precipitation_GPM"], label="IMERG (GPM NASA)")
 
     for split_rule in inst.popt :
         a, b = inst.popt[split_rule]
         est = inst.method["function"](inst.df_r["upwards_mean_5000"], a, b)
-        plt.plot(time,est.loc[inst.test_split], label=f'Estimation {inst.method_name} (split:{split_rule})')
+        est_values = est.loc[inst.test_split].values if subset=="test" else est.loc[inst.train_split].values if subset=='train' else est.values
+        plt.plot(time,est_values, label=f'Estimation {inst.method_name} (split:{split_rule})')
 
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d%b'))
     plt.ylabel("Precipitation (mm/h)")
     plt.legend()
+
+def plot_spectro_size_repartition(depids,path):
+    dims = []
+    for depid in depids:
+        _df = pd.read_csv(os.path.join(path,depid,f"{depid}_dive.csv"))
+        for _, row in tqdm(_df.iterrows(),desc=depid):
+            npz_path = os.path.join(path,depid,"dives",f'acoustic_dive_{int(row["dive"]):05d}.npz')
+            npz = np.load(npz_path)
+            freq, spectro = npz["freq"], npz["spectro"]
+            mask = npz["depth"] > 10
+            spectro_masked = spectro[mask]
+
+            dims.append(((spectro_masked.shape),depid))
+
+    plt.figure(figsize=(15, 5))
+    colors = cm.tab20(np.linspace(0, 1, len(depids)))
+
+    data_grouped = []
+    labels = []
+
+    for i, depid in enumerate(depids):
+        values = [dims[j][0][0] for j, d in enumerate(dims) if d[1] == depid]
+        data_grouped.append(values)
+        labels.append(depid)
+
+    box = plt.boxplot(data_grouped, patch_artist=True, labels=labels)
+
+    for patch, color in zip(box['boxes'], colors):
+        patch.set_facecolor(color)
+
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+def print_metrics(y_preds, y_test):
+    mae = metrics.mean_absolute_error(y_test, y_preds)
+    rmse = metrics.root_mean_squared_error(y_test, y_preds)
+    r2 = metrics.r2_score(y_test, y_preds)
+    var = np.var(abs(y_test)-abs(y_preds))
+    std = np.std(abs(y_test)-abs(y_preds))
+    cc = np.corrcoef(y_test, y_preds)[0][1]
+    print(f"mae : {mae}")
+    print(f"rmse : {rmse}")
+    print(f"r2 : {r2}")
+    print(f"var : {var}")
+    print(f"std : {std}")
+    print(f"cc : {cc}")

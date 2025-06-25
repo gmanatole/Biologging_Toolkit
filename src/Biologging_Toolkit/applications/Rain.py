@@ -204,6 +204,18 @@ class Rain():
 			raise Exception("/!\ df_data must be 'csv' or 'npz") 
 		
 		self.df = df
+	
+	def estimate_bibliography(self, offset=100):
+		estimation = self.method['function'](self.df_r[self.method['frequency']],self.method['parameters']["a"],self.method['parameters']["b"],offset)
+		mae = metrics.mean_absolute_error(self.df_r['precipitation_GPM'], estimation)
+		rmse = metrics.root_mean_squared_error(self.df_r['precipitation_GPM'], estimation)
+		r2 = metrics.r2_score(self.df_r['precipitation_GPM'], estimation)
+		var = np.var(abs(self.df_r['precipitation_GPM'])-abs(estimation))
+		std = np.std(abs(self.df_r['precipitation_GPM'])-abs(estimation))
+		cc = np.corrcoef(self.df_r['precipitation_GPM'], estimation)[0][1]
+
+		self.df_r.loc[self.df_r.index, 'depid_estimation'] = estimation
+		self.rain_model_stats.update({'biblio_mae':mae, 'biblio_rmse':rmse, 'biblio_r2':r2, 'biblio_var':var, 'biblio_std':std,'biblio_cc':cc})
 		
 	def __str__(self):
 		if 'rain_model_stats' in dir(self):
@@ -257,6 +269,9 @@ class Rain():
 		
 		trainset = self.df_r.iloc[:int(params['split']*len(self.df_r))]
 		testset = self.df_r.iloc[int(params['split']*len(self.df_r)):]
+		self.train_split = trainset.index.to_numpy()
+		self.test_split = testset.index.to_numpy()
+
 		popt, popv = curve_fit(self.method['function'], trainset[f"upwards_mean_{self.frequency}"].to_numpy(), trainset['precipitation_GPM'].to_numpy(), bounds = params['bounds'], maxfev=params['maxfev'])
 		estimation = self.method['function'](testset[f"upwards_mean_{self.frequency}"].to_numpy(), *popt)
 		
