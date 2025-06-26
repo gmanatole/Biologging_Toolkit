@@ -168,7 +168,7 @@ class Rain():
 			df['fns']=fns
 			df["depid"]=_dep
 
-		elif df_data=="npz" : 
+		elif df_data=="npz_reduced" : 
 			df = pd.DataFrame({})
 			for p, dep in zip(self.path, self.depid):
 				print(dep)
@@ -200,6 +200,35 @@ class Rain():
 						})
 
 				df = pd.concat([df,pd.DataFrame(rows)])
+		elif df_data=="npz":
+			rows=[]
+			for p, dep in zip(self.path, self.depid):
+				print(dep)
+				df_csv = pd.read_csv(f"{p}/{dep}_dive.csv")
+				rows = []
+				for idx, row in tqdm(df_csv.iterrows(), total=len(df_csv)):
+					npz_path = os.path.join(p,dep,"dives",f'acoustic_dive_{int(row["dive"]):05d}.npz')
+					npz = np.load(npz_path)
+					freq, spectro = npz["freq"], npz["spectro"]
+					
+					mask = npz["depth"] > 10
+					spectro_masked = spectro[mask] 
+
+					target_length = 600
+					current_length = spectro_masked.shape[0]
+
+					if current_length < target_length:
+						pad_width = ((0, target_length - current_length), (0, 0)) 
+						padded_spectro = np.pad(spectro_masked, pad_width, mode='constant')
+					else:
+						padded_spectro = spectro_masked[:target_length, :]
+
+					flat_spectro = padded_spectro.flatten()
+					row_npz = np.insert(flat_spectro, 0, row["precipitation_GPM"])
+					rows.append(row_npz)
+					
+			final_array = np.stack(rows)
+			df = pd.DataFrame(final_array)
 		else :
 			raise Exception("/!\ df_data must be 'csv' or 'npz") 
 		

@@ -917,7 +917,7 @@ def plot_confusion_matrix(df):
 
 
 def plot_rain_estimation_cumulated(inst:Rain, subset = "test"):
-
+    
     if subset == "test" :
         time = pd.to_datetime(inst.df_r["begin_time"].loc[inst.test_split], unit='s')
         gt_values = inst.df_r["precipitation_GPM"].loc[inst.test_split].values
