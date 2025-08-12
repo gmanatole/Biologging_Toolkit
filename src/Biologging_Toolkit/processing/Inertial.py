@@ -149,7 +149,7 @@ class Inertial(Wrapper):
 		return self.forward(overwrite = overwrite)
 	
 	
-	def forward(self, overwrite = True):
+	def forward(self, overwrite = False):
 		"""
 		Processes inertial data, normalizes them, computes euler angles and posture, and updates a NetCDF dataset with the results.
 		Parameters

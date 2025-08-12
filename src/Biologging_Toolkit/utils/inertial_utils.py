@@ -3,6 +3,14 @@ import numpy as np
 import requests
 import xml.etree.ElementTree as ET
 
+def find_sequence(condition, samplerate =  1):
+    condition = condition.astype(int)
+    edges = np.diff(condition, prepend=0, append=0)
+    start_idx = np.where(edges == 1)[0]
+    end_idx = np.where(edges == -1)[0] - 1
+    length = (end_idx - start_idx + 1) / samplerate
+    result = np.vstack([condition[start_idx], start_idx, end_idx, length]).T
+    return result
 
 def norm(X):
 	m, n = X.shape
@@ -13,31 +21,26 @@ def norm(X):
 	return v
 
 def angular_average(angles):
-    # Convert angles to Cartesian coordinates
     x_coords = [np.cos(angle) for angle in angles]
     y_coords = [np.sin(angle) for angle in angles]
-    
-    # Compute the mean of the coordinates
     x_mean = np.nansum(x_coords) / len(angles)
     y_mean = np.nansum(y_coords) / len(angles)
-    
-    # Convert the mean coordinates back to an angle
     average_angle = np.arctan2(y_mean, x_mean)
-    
-    # Normalize the angle to be within [0, 2*pi)
     if average_angle < 0:
         average_angle += 2 * np.pi
-    
     return average_angle
 
 def modulo_pi(angle):
-    # Normalize to range [0, 2*pi)
     angle = angle % (2 * np.pi)
-    
-    # Shift to range [-pi, pi)
     angle[angle > np.pi] = angle[angle > np.pi] - 2 * np.pi
-    
     return angle
+
+def angular_correlation(x,y):
+    dpos = x - y
+    dneg = x + y
+    pos_corr = np.sqrt((np.nansum(np.cos(dpos))**2 + np.nansum(np.sin(dpos))**2))/len(dpos)
+    neg_corr = np.sqrt((np.nansum(np.cos(dneg))**2 + np.nansum(np.sin(dneg))**2))/len(dneg)
+    return pos_corr, neg_corr
 
 def coa(lat, lon):
 	return np.sin(lat[1])*np.sin(lat[0]) + np.cos(lat[0])*np.cos(lat[1])*(np.cos((lon[1]-lon[0])))

@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import numpy as np
 import calendar
 import time
@@ -12,6 +12,16 @@ def get_start_time_sens(x) :
 	Turn string UTC datetime (from sens5 structure) into a POSIX timestamp (UTC)
 	"""
 	return datetime.strptime(x, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
+
+def get_matlab_date(x) :
+	return calendar.timegm((datetime.fromordinal(int(x)) + timedelta(days=x%1) - timedelta(days = 366)).timetuple())
+
+def get_time_trk(ds) :
+	timestamp = get_start_time_sens(ds.dephist_device_datetime_start) + ds['POS'][:].data[0]
+	if ds.depid == 'ml17_280a' :
+		timestamp = list(map(get_matlab_date, ds['POS'][:].data[0]))
+		timestamp = np.array(timestamp)
+	return timestamp
 
 def get_ext_time_xml(x) :
 	"""
@@ -28,8 +38,8 @@ def get_start_time_xml(path) :
 		tree = ET.parse(path)
 		root = tree.getroot()
 		for cfg in root.findall('CFG'):
-		    if cfg.find('RANGE[@SENS="ACC"]') != None:
-		        return datetime.strptime(cfg.attrib.get('TIME'), '%Y,%m,%d,%H,%M,%S').replace(tzinfo=timezone.utc).timestamp()
+			if cfg.find('RANGE[@SENS="ACC"]') != None:
+				return datetime.strptime(cfg.attrib.get('TIME'), '%Y,%m,%d,%H,%M,%S').replace(tzinfo=timezone.utc).timestamp()
 		raise ValueError(f'starting time not found in xml file {path}')
 
 	if isinstance(path, (list, np.ndarray)) :

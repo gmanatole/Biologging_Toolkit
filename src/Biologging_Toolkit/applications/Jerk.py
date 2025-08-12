@@ -69,7 +69,7 @@ class Jerk(Wrapper):
 	lr_blanking = 5
 	lr_duration = None
 	hr_threshold = 400
-	hr_blanking = 0.25
+	hr_blanking = 25
 	hr_duration = 0.02
 	
 	
@@ -369,7 +369,7 @@ class Jerk(Wrapper):
 		
 		
 	@staticmethod
-	def get_peaks(jerk, samplerate, blanking, threshold, duration):
+	def get_peaks(jerk, samplerate, blanking, threshold, duration = None):
 		"""
 		Identify peaks in the jerk signal that exceed a specified threshold.
 		
