@@ -108,22 +108,18 @@ class Bioluminescence(Wrapper):
 		cue = 0
 		swv_fns = np.array(glob(os.path.join(self.raw_path, '*swv')))
 		L = []
-		L_col = get_xml_columns(swv_fns[0][:-3] + 'xml', cal='ext', qualifier2='d4')  # Get column of sonar files corresponding to light
+		L_col = get_xml_columns(swv_fns[0][:-3] + 'xml', cal='ext', qualifier2='d4')
 		for fn in swv_fns :
 			sig, fs = sf.read(fn)
 			for idx in range(0, len(sig), nsamps):
 				ll = sig[idx:idx+nsamps, L_col]
-				# Clean the data
 				ll = self.fix_light_data(ll)
-				# Buffer the data into blocks
 				n_blocks = len(ll) // bl
 				Y = np.array([ll[i:i+bl] for i in range(0, n_blocks * bl, bl)])
-				# Calculate the max of each block and append to L
 				L.extend(np.nanmax(Y, axis=1))
-		# Ensure L is a column vector
 		L = np.array(L)
 		if len(L) > 0:
-			L = np.append(L, L[-1])  # Add one measurement to equalize length of other sensors
+			L = np.append(L, L[-1])
 		return L
 	
 	
@@ -175,42 +171,32 @@ class Bioluminescence(Wrapper):
 		h    : np.ndarray
 		   The FIR filter used.
 		"""
-		n = int(np.floor(n / 2) * 2)  # n must be even for an integer group delay
-		noffs = n // 2  # Filter delay
+		n = int(np.floor(n / 2) * 2)
+		noffs = n // 2
 		if qual is not None:
 			h = firwin(n+1, fp, pass_zero=qual)
 		else:
 			h = firwin(n+1, fp)
 		if x.ndim == 1:
 			x = x[:, np.newaxis]
-		# Add padding to the signal
 		x_padded = np.vstack([x[n-1::-1, :], x, x[:-n-1:-1, :]])
-		# Filter the signal
 		y = lfilter(h, 1.0, x_padded, axis=0)
-		# Remove padding and correct the delay
 		y = y[n+noffs-1:y.shape[0]-n+noffs-1, :]
 		return y, h
-	    
 	
 	def fix_light_data(self, L) :
-		# Find indices where L > 0.99
 		kc = np.where(L > 0.99)[0]
 		L[kc] = np.nan
-		# Buffer the data into columns of length INTVL to compute median
 		n = len(L)
 		nbl = int(np.ceil(n / self.INTVL))
 		pad_length = (self.INTVL - (n % self.INTVL)) % self.INTVL
-		L_padded = np.pad(L, (0, pad_length), constant_values=np.nan)  #To create 2D matrix of size (-1, INTVL)
+		L_padded = np.pad(L, (0, pad_length), constant_values=np.nan)
 		Lb = L_padded.reshape(-1, self.INTVL).T
 		Lp = np.nanmedian(Lb, axis=1)
-		# Subtract the interference pattern from the original signal
 		L_corrected = L - np.tile(Lp, nbl)[:n]
 		L_corrected = np.append(L_corrected, Lp[:n - len(L_corrected)])
-		# Apply a median filter with a kernel size of 3
 		L_corrected = medfilt(np.abs(L_corrected), kernel_size=3)
-		# Restore the original high values
 		L_corrected[kc] = 1 - np.median(Lp)
-
 
 
 '''    
