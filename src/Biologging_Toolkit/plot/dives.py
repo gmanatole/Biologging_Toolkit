@@ -6,9 +6,14 @@ import plotly.graph_objects as go
 import os
 import pandas as pd
 import netCDF4 as nc
+plt.rcParams.update({
+    "text.usetex": True,                # Enable LaTeX text rendering
+    "font.family": "serif",             # Use a serif font
+    "font.serif": ["Computer Modern"],  # Set font to Computer Modern (LaTeX default)
+})
 
 def plot_clusters(drift, save = False, save_path = '.'):
-    fig, ax = plt.subplots(1,2, figsize = (15,8))
+    fig, ax = plt.subplots(1,2, figsize = (10,5))
     dives = drift.ds['dives'][:]
     acc_drifts = drift.ds['acc_drift'][:].data.astype(int)
     depth_drifts = drift.ds['depth_drift'][:].data.astype(int)
@@ -20,13 +25,13 @@ def plot_clusters(drift, save = False, save_path = '.'):
             labels.append(1)
         else :
             labels.append(0)
-    scatter = ax[0].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 15, cmap = 'RdYlBu')
+    scatter = ax[0].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu')
     label_gt = {0:'Active dive', 1:'Drift dive'}
     for label in np.unique(labels):
         ax[0].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'{label_gt[label]}')
     ax[0].legend(title="Clusters")
     labels = drift.clusterer.labels_
-    scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 15, cmap = 'RdYlBu')
+    scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu')
     for label in np.unique(labels):
         ax[1].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'Cluster {label}')
     ax[1].legend(title="Clusters")
