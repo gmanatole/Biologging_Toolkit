@@ -22,6 +22,7 @@ def pairplot(w, vars = ['jerk']) :
 def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
     regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
     colors = ['deeppink', 'gold', 'magenta']
+    features = {'bathy':'bathymetry','jerk':'number of jerks', 'flash':'number of jerks','temp':'temperature'}
     if X_test.shape[1] == 2 :
         fig, ax = plt.subplots(2, 3, figsize = (15,11))
         for i, (feature, fixed) in enumerate(zip(['flash','jerk'],['jerk','flash'])) :
@@ -34,18 +35,18 @@ def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
                     ax[i, j].set_title(f'{_class.capitalize()} prediction')
                 probs = getattr(whale, regression[_class]).predict_proba(X_plot)[:, 1]
                 ax[i,j].plot(feature_range, probs, c = colors[j])
-                ax[i,j].set_xlabel(f"Average {feature} per dive")
+                ax[i,j].set_xlabel(f"Average {features[feature]} per dive")
                 ax[i,j].scatter(X_test[feature], y_pred.delphinid, c = colors[j], edgecolor = 'gray', alpha = 0.9)
                 ax[i,j].grid(True)
     elif X_test.shape[1] == 1 :
         fig, ax = plt.subplots(1, 3, figsize = (15,6))
         ax[0].set_ylabel("Predicted Probability")
         feature_range = np.linspace(X_test.min(), X_test.max(), 300)
-        for j, _class in enumerate(['baleen','delphinid','spermwhale']) :
-            ax[j].set_title(f'{_class.capitalize()} prediction')
+        for j, (_class, _class_name) in enumerate(zip(['baleen','delphinid','spermwhale'], ['baleen whale','delphinid','spermwhale'])) :
+            ax[j].set_title(f'{_class_name.capitalize()} prediction')
             probs = getattr(whale, regression[_class]).predict_proba(feature_range)[:, 1]
             ax[j].plot(feature_range, probs, c = colors[j])
-            ax[j].set_xlabel(f"Average {X_test.columns[0]} per dive")
+            ax[j].set_xlabel(f"Average {features[X_test.columns[0]]} per dive")
             ax[j].scatter(X_test, y_pred[_class], c = colors[j], edgecolor = 'gray', alpha = 0.9)
             ax[j].grid(True)
     fig.tight_layout()
