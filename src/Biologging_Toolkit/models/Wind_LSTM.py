@@ -20,18 +20,26 @@ class WindLSTM() :
 			  variable : str = 'wind_speed',
 			  dataloader = 'preprocessed',  
 			  loss = 'normal',
+			  output_dim = 1,
+			  model_type = 'LSTM',
 			  supplementary_data = [],
+			  data_augmentation = False,
 			  test_depid = None,
 			  fine_tune = False,
 			  model_path = None
 			  ) :
 
+		### CLASS ATTRIBUTES
 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 		self.model_params = model_params
 		self.variable = variable
+		self.loss = loss
+		self.output_dim = output_dim
+		self.data_augmentation = data_augmentation
 		if not test_depid :
 			test_depid = split_parameters['test_depid']
-		# Load data
+			
+		### LOAD DATA AND CORRECT DIVES
 		self.depid = depid
 		if isinstance(self.depid, List) :
 			assert len(self.depid) == len(acoustic_path) and len(self.depid) == len(path), "Please provide paths for each depid"
@@ -56,36 +64,64 @@ class WindLSTM() :
 					idx+=1
 					self.depids.append(dep)
 		self.fns, self.indices, self.depids, self.dives = np.array(self.fns), np.array(self.indices), np.array(self.depids), np.array(dives)
-		self.train_split, self.test_split = get_train_test_split(self.fns, self.indices, self.depids, method = split_parameters['method'], test_depid = test_depid)
 
+		### CREATE TRAIN TEST SPLIT
+		self.train_split, self.test_split = get_train_test_split(self.fns, self.indices, self.depids, method = split_parameters['method'], test_depid = test_depid)
+		self.train_split = np.array(self.train_split)
+		self.test_split = np.array(self.test_split)
+
+
+		### CREATE/LOAD MODEL
 		self.num_epochs = hyperparameters['num_epochs']
 		self.batch_size = hyperparameters['batch_size']
 		self.learning_rate = hyperparameters['learning_rate']
 		self.weight_decay = hyperparameters['weight_decay']
-		self.model = RNNModel(self.model_params['input_size'],
-                              self.model_params['hidden_size'],
-                              1,
-                              1).to(self.device)
+		if model_type == 'LSTM':
+			self.model = RNNModel(input_dim = self.model_params['input_size'],
+                              hidden_dim = self.model_params['hidden_size'],
+							  layer_dim = 1,
+                              output_dim = self.output_dim).to(self.device)
+		if model_type == 'Fusion':
+			self.model = FusionLSTM(input_dim = self.model_params['input_size'],
+                              hidden_dim = self.model_params['hidden_size'],
+                              layer_dim = 1, 
+                              output_dim = self.output_dim,
+                              acoustic_dim=513,
+                              acoustic_out=16).to(self.device)
+		if self.data_augmentation : 
+			self.train_split = long_tail_rain_augmenter(self.train_split)
 
+
+		### BUILD DATALOADERS
 		self.trainloader = utils.data.DataLoader(LoadDives(self.depid, self.train_split,
                                                               self.variable, 
-                                                              supplementary_data), 
+                                                              supplementary_data,
+														      self.data_augmentation,
+														      loss = self.loss), 
                                                      self.batch_size, shuffle = True)
-		if test_depid in ['ml17_280a', 'ml18_294b', 'ml18_296a'] :
+		if (test_depid in ['ml17_280a', 'ml18_294b', 'ml18_296a']) and (variable == 'cfosat') :
 			variable = 'wind_speed'
 		else :
 			variable = self.variable
 		self.testloader = utils.data.DataLoader(LoadDives(test_depid, self.test_split,
                                                              variable,
-                                                             supplementary_data), 
+                                                             supplementary_data,
+														     loss = self.loss), 
                                                     self.batch_size)
-        
-		if loss == 'weighted': 
+
+		### CREATE LOSS FUNCTION AND OPTIMIZER
+		if self.loss == 'weighted': 
 			self.criterion = WeightedMSELoss()
+		elif self.loss == 'rain' :
+			self.criterion = WeightedMSELossRain()
+		elif self.loss == 'classes': 
+			self.criterion = nn.CrossEntropyLoss()
 		else :
 			self.criterion = nn.MSELoss()
+			
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay = self.weight_decay)
 
+		### OPTIONAL FINE TUNING
 		if fine_tune == True :
 			self.model.load_state_dict(torch.load(model_path, weights_only=True))
 			for name, layer in self.model.named_children():
@@ -94,6 +130,7 @@ class WindLSTM() :
 						param.requires_grad = False
 			self.optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()),lr=self.learning_rate, weight_decay = self.weight_decay)
 
+		### ACCURACY ARRAYS
 		self.train_loss = []        
 		self.train_accuracy = []
 		self.test_accuracy = []
@@ -109,18 +146,27 @@ class WindLSTM() :
 				self.optimizer.zero_grad()
 
 				data, labels = batch
+				if self.loss == 'classes' :
+					labels = rain_categories(labels)
 				data = data.to(self.device)
 				labels = labels.to(self.device)
-
 				outputs = self.model(data)
-				outputs = outputs.view(-1, 1)
-				labels = labels.view(-1, 1)
-				loss = self.criterion(outputs, labels)
+				if self.loss == 'classes' :
+					loss = self.criterion(outputs, labels)
+				else :
+					outputs = outputs.view(-1, 1)
+					labels = labels.view(-1, 1)
+					loss = self.criterion(outputs, labels)
 				loss.backward()
 				self.optimizer.step()
 
 				loss_batch.append(loss.item())
-				acc_batch.append(np.mean(abs(outputs.cpu().detach().numpy() - labels.cpu().detach().numpy())))
+				if self.loss == 'classes' :
+					probs = torch.softmax(outputs, dim=1)
+					predicted_class = torch.argmax(probs, dim=1)
+					acc_batch.append((predicted_class == labels).sum().item() / len(labels))
+				else :
+					acc_batch.append(np.mean(abs(outputs.cpu().detach().numpy() - labels.cpu().detach().numpy())))
                 
 			self.train_accuracy.append(np.mean(acc_batch))
 			self.train_loss.append(np.mean(loss_batch))
@@ -137,19 +183,32 @@ class WindLSTM() :
 			for batch in tqdm(self.testloader):
                 
 				data, labels = batch
+				if self.loss == 'classes' :
+					labels = rain_categories(labels)
 				data = data.to(self.device)
 				labels = labels.to(self.device)
                 
 				outputs = self.model(data)
-				outputs = outputs.view(-1, 1)
-				labels = labels.view(-1, 1)
 
-				loss = self.criterion(outputs, labels)   
-                
-				outputs, labels = outputs.cpu().detach().numpy(), labels.cpu().detach().numpy()
-				all_preds.extend(outputs)
-				all_labels.extend(labels)   
-				acc_test.append(np.mean(abs(outputs - labels)))
+				if self.loss == 'classes' :
+					loss = self.criterion(outputs, labels)
+				else :
+					outputs = outputs.view(-1, 1)
+					labels = labels.view(-1, 1)
+					loss = self.criterion(outputs, labels)
+
+
+				if self.loss == 'classes' :
+					probs = torch.softmax(outputs, dim=1)
+					predicted_class = torch.argmax(probs, dim=1)
+					acc_test.append((predicted_class == labels).sum().item() / len(labels))
+					all_preds.extend(predicted_class.cpu().detach().numpy())
+					all_labels.extend(labels.cpu().detach().numpy())
+				else :
+					outputs, labels = outputs.cpu().detach().numpy(), labels.cpu().detach().numpy()
+					acc_test.append(np.mean(abs(outputs - labels)))
+					all_preds.extend(outputs)
+					all_labels.extend(labels)
 				loss_test.append(loss.item())
                 
 		self.test_accuracy.append(np.mean(acc_test))
@@ -166,11 +225,13 @@ class LoadDives(utils.data.Dataset) :
 
 	seq_length = 800
 
-	def __init__(self, depid, split, variable, supplementary_data) :
+	def __init__(self, depid, split, variable, supplementary_data, data_augmentation = False, loss = 'normal') :
 		self.variable = variable
 		self.fns = split[0]
 		self.other_inputs = supplementary_data
-        
+		self.data_augmentation = data_augmentation
+		self.loss = loss
+	
 		# Filter out indices with NaN labels
 		valid_indices = []
 		for idx in range(len(self.fns)):
@@ -205,7 +266,7 @@ class LoadDives(utils.data.Dataset) :
 	def __getitem__(self, idx):
 
 		data = np.load(self.fns[self.indices[idx]])
-		spectro = torch.Tensor(data['spectro'])
+		spectro = torch.tensor(data['spectro'], dtype=torch.float32)
 		spectro = (spectro - normalization['acoustic_min'])/(normalization['acoustic_max'] - normalization['acoustic_min'])
 		#Clipping to get rid of outlier values
 		spectro[spectro < 0] = 0
@@ -224,11 +285,15 @@ class LoadDives(utils.data.Dataset) :
 				_data[_data < 0] = 0
 			elif other_input == 'distance_to_coast' :
 				_data = _data / 1300
-			spectro = torch.cat((spectro, torch.Tensor(_data).unsqueeze(1)), dim = 1)
+			elif other_input == 'wind_speed' :
+				_data = _data / 22
+			spectro = torch.cat((spectro, torch.tensor(_data, dtype=torch.float32).unsqueeze(1)), dim = 1)
             
 		# Remove depth under 10m
 		spectro = spectro[data['depth'] >= 10] 
-        
+		if self.data_augmentation :
+			spectro = DataAugmentation(spectro)()
+			
 		if len(spectro) < self.seq_length:
 			spectro = torch.cat((torch.zeros(self.seq_length-len(spectro), spectro.size(1)), spectro))
 
@@ -249,10 +314,7 @@ class RNNModel(nn.Module):
 	def __init__(self, input_dim, hidden_dim, layer_dim, output_dim):
 		super(RNNModel, self).__init__()
 
-		# Number of hidden dimensions
 		self.hidden_dim = hidden_dim
-
-		# Number of hidden layers
 		self.layer_dim = layer_dim
 
 		# RNN
@@ -285,3 +347,62 @@ class RNNModel(nn.Module):
 		out = self.fc3(out)
 
 		return out
+
+class FusionLSTM(nn.Module):
+    '''
+    LSTM model with separate 1D CNN processing for:
+    - Main sensors
+    - 4 auxiliary sensors
+    - 1 prioritized auxiliary sensor
+    '''
+    def __init__(self, input_dim, hidden_dim, layer_dim, output_dim, acoustic_dim=513, acoustic_out=16):
+        super(FusionLSTM, self).__init__()
+
+        self.hidden_dim = hidden_dim
+        self.layer_dim = layer_dim
+        self.acoustic_dim = acoustic_dim
+        self.input_dim = input_dim 
+        self.acoustic_out = acoustic_out
+		
+        # CNN for acoustic data
+        self.main_cnn = nn.Sequential(
+            nn.Conv1d(in_channels=self.acoustic_dim, out_channels=128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(128, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+			nn.Conv1d(64, self.acoustic_out, kernel_size=3, padding=1),
+			nn.ReLU())
+
+        # Final fused feature
+        final_size = self.input_dim-self.acoustic_dim+self.acoustic_out
+        self.rnn = nn.LSTM(input_size=final_size, hidden_size=hidden_dim, num_layers=layer_dim, batch_first=True)
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(hidden_dim, 64)
+        self.act1 = nn.LeakyReLU()
+        self.fc2 = nn.Linear(64, 32)
+        self.act2 = nn.LeakyReLU()
+        self.fc3 = nn.Linear(32, output_dim)
+
+    def forward(self, x):
+        '''
+        x: (batch, seq_len, 500) — 495 main + 5 auxiliary (last is prioritized)
+        '''
+        spec = x[:, :, :self.acoustic_dim]
+        aux = x[:, :, self.acoustic_dim:]
+        
+        spec = spec.permute(0, 2, 1) 
+        spec = self.main_cnn(spec)
+        spec = spec.permute(0, 2, 1)
+        fused = torch.cat([spec, aux], dim=2)
+
+        h0 = torch.zeros(self.layer_dim, x.size(0), self.hidden_dim).to(x.device)
+        c0 = torch.zeros(self.layer_dim, x.size(0), self.hidden_dim).to(x.device)
+        out, _ = self.rnn(fused, (h0, c0))
+        out = out[:, -1, :]
+
+        out = self.act1(self.fc1(out))
+        out = self.act2(self.fc2(out))
+        out = self.fc3(out)
+
+        return out

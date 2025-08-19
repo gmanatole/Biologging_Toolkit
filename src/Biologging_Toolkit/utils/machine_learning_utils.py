@@ -1,8 +1,28 @@
 import torch
 from torch import nn, utils
 import numpy as np
+import random
 from sklearn.neighbors import KernelDensity
 import os
+
+
+def rain_categories(labels) :
+	labels[(labels > 0) & (labels <= 2)] = 1
+	labels[(labels > 2) & (labels <= 10)] = 2
+	labels[(labels > 10) & (labels <= 20)] = 3
+	labels[labels > 20] = 4
+	labels[labels == 0] = 0
+	return labels.long()
+
+def long_tail_rain_augmenter(train_split, threshold = 0, n_augment = 10) :
+	rr = []
+	for path in train_split[0] :
+		rr.append(np.nanmean(np.load(path)['precipitation_GPM']))
+	rr = np.array(rr).flatten()
+	rain_split = train_split[:, rr > threshold]
+	for i in range(n_augment) :
+		train_split = np.append(train_split, rain_split, axis = 1)
+	return train_split
 
 def get_train_test_split(paths, indices, depids, method = 'random_split', test_depid = None, split = 0.8) :
 	if method == 'depid' :
@@ -25,6 +45,20 @@ def get_train_test_split(paths, indices, depids, method = 'random_split', test_d
 	elif method == 'skf':
 		raise NotImplementedError("This method is to be implemented later.")
 
+
+class WeightedMSELossRain(nn.Module) :
+    '''
+    Weighted MSE loss for precipitation data.
+    Can be adapted for any unbalanced regression task.
+    '''
+    def __init__(self, zero_weight=0.1, positive_weight=1.0):
+        super(WeightedMSELoss, self).__init__()
+
+    def forward(self, prediction, target):
+        weights = torch.tanh(target/0.25)**2
+        weights[weights < 0.1] = 0.1
+        loss = weights * (prediction - target) ** 2
+        return torch.mean(loss)
 
 class WeightedMSELoss(nn.Module):
     '''
@@ -94,11 +128,40 @@ class MLDDataLoader(utils.data.Dataset):
             mask[(i+1) * size_of_data - shift: (i+1) * size_of_data] = [False]*shift
         return mask
 
+class DataAugmentation :
+	def __init__(self, X) :
+		self.X = X
+		self.prob_wn = torch.rand(1)
+		self.prob_sm = torch.rand(1)
+
+	def __call__(self, threshold_wn = 0.3, threshold_sm = 0.3) :
+		if self.prob_wn <= threshold_wn :
+			self.white_noise()
+		if self.prob_sm <= threshold_sm :
+			self.spec_masking()
+		return self.X
+
+	def white_noise(self, noise_level=0.05):
+	    noise = torch.normal(0, noise_level, size=self.X.size())
+	    self.X += noise
+		
+	def spec_masking(self, num_freq_masks=1, freq_mask_param=25, num_time_masks=1, time_mask_param=25):
+	    num_freq_bins, num_time_steps = self.X.shape
+	    for _ in range(num_freq_masks):
+	        f = torch.randint(0, freq_mask_param, size = (1,))
+	        f0 = torch.randint(0, max(1, num_freq_bins - f), size = (1,))
+	        self.X[f0:f0+f, :] = 0
+	    for _ in range(num_time_masks):
+	        t = torch.randint(0, time_mask_param, size = (1,))
+	        t0 = torch.randint(0, max(1, num_time_steps - t), size = (1,))
+	        self.X[:, t0:t0+t] = 0
+	    
+
 class RegressionDataAugmenter:
     def __init__(self, X, Y, bandwidth=0.5):
         self.X = np.array(X)
         self.Y = np.array(Y)
-        self.bandwidth = bandwidth  # Controls smoothness in KDE
+        self.bandwidth = bandwidth
 
     def augment_data(self, target_size=None):
         """
