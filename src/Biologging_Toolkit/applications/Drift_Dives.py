@@ -6,6 +6,7 @@ import hdbscan
 import netCDF4 as nc
 from tqdm import tqdm
 from scipy.interpolate import interp1d
+from sklearn.metrics import confusion_matrix, f1_score
 from typing import Union, List
 from Biologging_Toolkit.wrapper import Wrapper
 from Biologging_Toolkit.utils.inertial_utils import find_sequence
@@ -61,7 +62,7 @@ class DriftDives(Wrapper) :
 				if 'inertial_drift' in self.ds.variables:
 					self.remove_variable('inertial_drift')
 	
-			if 'inertial_speed' not in self.ds.variables:
+			if 'inertial_drift' not in self.ds.variables:
 				inertial = self.ds.createVariable('inertial_drift', np.float64, ('time',))
 				inertial.units = 'binary'
 				inertial.long_name = 'Flag indicating whether or not the animal is passively drifting'
@@ -235,7 +236,18 @@ class DriftDives(Wrapper) :
 			#if (abs(vertical_speed_after) < speed_threshold) or abs((vertical_speed_before) < speed_threshold) :
 			#	dive_type[j] = 1
 
-	def acoustic_cluster(self, nfeatures = 15, timestep = 5, tmax = 15, acoustic_path = None, min_cluster_size = 50, min_samples = 10, sort = False, freq_sampling = 'log'):
+	def acoustic_cluster(self,
+						 nfeatures = 15,
+						 freqs = None,
+						 timestep = 5,
+						 tmin = 0,
+						 tmax = 15,
+						 acoustic_path = None,
+						 min_cluster_size = 50,
+						 min_samples = 10,
+						 sort = False,
+						 freq_sampling = 'log',
+						 computed = False):
 		"""
 		Perform unsupervised clustering on acoustic feature data using UMAP for dimensionality reduction
 		and HDBSCAN for clustering.
@@ -257,43 +269,47 @@ class DriftDives(Wrapper) :
 		sort : bool, optional
 		    Whether or not to sort feature with increasing amplitude along temporal axis. Not implemented
 		"""
-		fns = glob(os.path.join(acoustic_path, '*'))
-		if (nfeatures <= 20) and (freq_sampling == 'log'):
-			self.posfeatures = np.exp(np.arange(0, nfeatures) * np.log(513) / nfeatures).astype(int)
-		else :
-			self.posfeatures = np.linspace(0, 512, max(1, 1//nfeatures)).astype(int)
-		X = []
-		_fns = []
-		start, stop = [], []
-		for fn in fns:
-			data = np.load(fn)
-			if data['len_spectro'] <= tmax*20:
-				continue
-			_data = data['spectro'][:tmax*20:timestep, self.posfeatures]
-			if np.isnan(_data).sum() != 0 :
-				continue
-			_fns.append(fn)
-			if sort :
-				_data = sort_spectrogram(_data)
-			X.append(_data)
-			start.append(data['time'][0])
-			stop.append(data['time'][-1])
-		self.cluster_fns = np.array(_fns)
-		X = np.array(X)
-		self.X = X.reshape(X.shape[0], -1)
+		if not computed :
+			fns = glob(os.path.join(acoustic_path, '*'))
+			if freqs :
+				frequencies = np.load(fns[0])['freq']
+				self.posfeatures = np.array([np.argmin(abs(frequencies - elem)) for elem in freqs])
+			elif (nfeatures <= 20) and (freq_sampling == 'log'):
+				self.posfeatures = np.exp(np.arange(0, nfeatures) * np.log(513) / nfeatures).astype(int)
+			else :
+				self.posfeatures = np.arange(0, 512, max(1, 1//nfeatures)).astype(int)
+			X = []
+			_fns = []
+			start, stop = [], []
+			for fn in fns:
+				data = np.load(fn)
+				if data['len_spectro'] <= tmax*20:
+					continue
+				_data = data['spectro'][int(tmin*20):int(tmax*20):timestep, self.posfeatures]
+				if np.isnan(_data).sum() != 0 :
+					continue
+				_fns.append(fn)
+				if sort :
+					_data = sort_spectrogram(_data)
+				X.append(_data)
+				start.append(data['time'][0])
+				stop.append(data['time'][-1])
+			self.cluster_fns = np.array(_fns)
+			X = np.array(X)
+			self.X = X.reshape(X.shape[0], -1)
+			self.start, self.stop = np.array(start), np.array(stop)
 		project = umap.UMAP()
 		self.embed = project.fit_transform(self.X)
 		self.clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples).fit(self.embed)
-		self.start, self.stop = np.array(start), np.array(stop)
 
-	def save_cluster(self, cluster, overwrite = False) :
+	def save_cluster(self, cluster, overwrite = False, **metadata) :
 		start = self.start[np.isin(self.clusterer.labels_, cluster)]
 		stop = self.stop[np.isin(self.clusterer.labels_, cluster)]
 		timestamps = self.ds['time'][:]
 		drifts = np.zeros((len(timestamps)))
 		for _start, _stop in zip(start, stop):
 			drifts[(timestamps >= _start) & (timestamps <= _stop)] = 1
-		metadata = {'method':'Clustering', 'features':f' Hz, '.join(self.posfeatures.astype(str))}
+		metadata = {**{'method':'Clustering', 'features':f' Hz, '.join(self.posfeatures.astype(str))}, **metadata}
 		self.create_variable('cluster_drifts', drifts, timestamps, overwrite, **metadata)
 
 	def acoustic_threshold(self, frequency : Union[List, int, str] = 'all', acoustic_path = None, N = 5, threshold = None):
@@ -302,7 +318,8 @@ class DriftDives(Wrapper) :
 			if frequency == 'all' :
 				freq = slice(None)
 			else :
-				freq = frequency if isinstance(self.depid, List) else [frequency]
+				#freq = frequency if isinstance(self.depid, List) else [frequency]
+				freq = frequency if isinstance(frequency, List) else [frequency]
 			fns = sorted(glob(os.path.join(acoustic_path, '*')))
 			avg_freq = np.nanmean(np.load(fns[10])['spectro'][:,freq], axis = 0)
 			thresholds = np.linspace(np.nanmin(avg_freq), np.nanmax(avg_freq), N)
@@ -333,7 +350,8 @@ class DriftDives(Wrapper) :
 			if frequency == 'all' :
 				freq = slice(None)
 			else :
-				freq = frequency if isinstance(self.depid, List) else [frequency]
+				#freq = frequency if isinstance(self.depid, List) else [frequency]
+				freq = frequency if isinstance(frequency, List) else [frequency]
 			fns = sorted(glob(os.path.join(acoustic_path, '*')))
 			avg_freq = np.nanmean(np.load(fns[10])['spectro'][:, freq], axis=0)
 			thresholds = np.linspace(np.nanmin(avg_freq), np.nanmax(avg_freq), N)
@@ -346,7 +364,8 @@ class DriftDives(Wrapper) :
 			pbar = tqdm(total=len(data) - 2 * acoustic_bound - 1, position=0, leave=True)
 			pbar.set_description('Applying smoothing window')
 			for j in range(acoustic_bound, len(data) - acoustic_bound - 1):
-				acoustic[j] = np.nanmean(data[j - acoustic_bound: j + acoustic_bound])
+				#acoustic[j] = np.nanmean(data[j - acoustic_bound: j + acoustic_bound +1])
+				acoustic[j] = np.nanmedian(data[j - acoustic_bound:j + acoustic_bound +1])
 				pbar.update(1)
 			# Find drift dives
 			pbar = tqdm(total=len(thresholds), position=0, leave=True)
@@ -364,7 +383,8 @@ class DriftDives(Wrapper) :
 			if frequency == 'all' :
 				freq = slice(None)
 			else :
-				freq = frequency if isinstance(self.depid, List) else [frequency]
+				#freq = frequency if isinstance(self.depid, List) else [frequency]
+				freq = frequency if isinstance(frequency, List) else [frequency]
 			fns = glob(os.path.join(acoustic_path, '*'))
 			data = []
 			for fn in tqdm(fns) :
@@ -376,7 +396,8 @@ class DriftDives(Wrapper) :
 			pbar = tqdm(total=len(data) - 2 * acoustic_bound - 1, position=0, leave=True)
 			pbar.set_description('Applying smoothing window')
 			for j in range(acoustic_bound, len(data) - acoustic_bound - 1):
-				acoustic[j] = np.nanmean(data[j - acoustic_bound: j + acoustic_bound])
+				#acoustic[j] = np.nanmean(data[j - acoustic_bound: j + acoustic_bound + 1])
+				acoustic[j] = np.nanmedian(data[j - acoustic_bound : j + acoustic_bound +1])
 				pbar.update(1)
 			dive_type = np.full(len(self.ds['depth'][:]), 0)
 			drift_bound = int(np.ceil(drift_length / self.ds.sampling_rate / 2))
@@ -387,6 +408,44 @@ class DriftDives(Wrapper) :
 					dive_type[k - drift_bound: k + drift_bound] = 1
 				pbar.update(1)
 			self.acoustic_drifts = np.array(dive_type)
+
+	def compute_metric(self, cluster = [1]):
+		acc_drift = self.ds['acc_drift'][:].data
+		depth_drift = self.ds['depth_drift'][:].data
+		dives = self.ds['dives'][:].data
+		inertial = self.ds['inertial_drift'][:].data
+		acc_dive, depth_dive, inert_dive, ac_dive = [], [], [], []
+		for fn in self.cluster_fns:
+			dive = int(fn.split('.')[0][-4:])
+			if np.all(acc_drift[dives == dive] == 0) == False:
+				acc_dive.append(1)
+			else:
+				acc_dive.append(0)
+			if np.all(inertial[dives == dive] == 0) == False:
+				inert_dive.append(1)
+			else:
+				inert_dive.append(0)
+			if np.all(depth_drift[dives == dive] == 0) == False:
+				depth_dive.append(1)
+			else:
+				depth_dive.append(0)
+		label = np.array(acc_dive) & np.array(depth_dive)
+		if 'clusterer' in dir(self):
+			ac_dive = np.zeros(len(label))
+			ac_dive[np.isin(self.clusterer.labels_, cluster)] = 1
+		else :
+			for fn in self.cluster_fns:
+				dive = int(fn.split('.')[0][-4:])
+				if np.all(self.ds['cluster_drifts'][:].data[dives == dive] == 0) == False:
+					ac_dive.append(1)
+				else:
+					ac_dive.append(0)
+		label = np.array(acc_dive) & np.array(depth_dive)
+		conf1 =  confusion_matrix(label, ac_dive, normalize='true')
+		conf2 = confusion_matrix(inert_dive, ac_dive, normalize='true')
+		conf3 = confusion_matrix(label, inert_dive, normalize='true')
+		f1 = f1_score(label, ac_dive)
+		return conf1, conf2, conf3, f1
 
 
 
