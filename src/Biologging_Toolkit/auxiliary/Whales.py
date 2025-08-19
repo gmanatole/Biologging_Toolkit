@@ -58,13 +58,13 @@ class Whales():
         for key in self.annotations.keys() :
             _other, _baleen, _delphinid, _spermwhale = np.zeros(len(self.annotations[key])),np.zeros(len(self.annotations[key])),np.zeros(len(self.annotations[key])),np.zeros(len(self.annotations[key]))
             for i, row in self.annotations[key].iterrows() :
-                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['other']) & (row[['Indice','Indice2','Indice3']] > self.idx)) :
+                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['other']) & (row[['Indice','Indice2','Indice3']] >= self.idx)) :
                     _other[i] = 1
-                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['baleen']) & (row[['Indice','Indice2','Indice3']] > self.idx)) :
+                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['baleen']) & (row[['Indice','Indice2','Indice3']] >= self.idx)) :
                     _baleen[i] = 1
-                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['delphinid']) & (row[['Indice','Indice2','Indice3']] > self.idx)) :
+                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['delphinid']) & (row[['Indice','Indice2','Indice3']] >= self.idx)) :
                     _delphinid[i] = 1
-                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['spermwhale']) & (row[['Indice','Indice2','Indice3']] > self.idx)) :
+                if np.any(np.isin(row[['Annotation','Annotation2','Annotation3']], labels['spermwhale']) & (row[['Indice','Indice2','Indice3']] >= self.idx)) :
                     _spermwhale[i] = 1
             self.annotations[key]['other'] = _other
             self.annotations[key]['baleen'] = _baleen
@@ -110,12 +110,14 @@ class Whales():
             aux['dives'] = np.unique(dives)
             aux['time'] = np.array([ds['time'][:].data[dives == _dive][0].item() for _dive in aux.dives])
             aux['jerk'] = np.array([np.nansum(ds['jerk'][:].data[dives == _dive] >= 400) for _dive in aux.dives])
+            aux['bathy'] = np.array([np.nanmean(ds['bathymetry'][:].data[dives == _dive]) for _dive in aux.dives])
             aux['flash'] = np.array([np.nansum(ds['flash'][:].data[:,2][dives == _dive]) for _dive in aux.dives])
             aux['temp'] = np.array([np.nanmean(ds['temperature'][:].data[dives == _dive]) for _dive in aux.dives])
             aux['date'] = pd.to_datetime(aux['time'], unit='s').dt.date
             aux = aux.groupby('date').agg('mean').reset_index()
-            self.daily[depid] = pd.merge(self.daily[depid], aux[['date','jerk','flash', 'temp']], on='date', how='left')
-            self.pos[depid] = pd.DataFrame({'lat':ds['lat'][:].data[::100], 'lon':ds['lon'][:].data[::100]})
+            self.daily[depid] = pd.merge(self.daily[depid], aux[['date','jerk','flash', 'temp', 'bathy']], on='date', how='left')
+            if pos :
+                self.pos[depid] = pd.DataFrame({'lat':ds['lat'][:].data[::100], 'lon':ds['lon'][:].data[::100]})
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)
@@ -157,6 +159,28 @@ class Whales():
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)
+
+    def get_map_annotation(self):
+        df = pd.DataFrame()
+        for key in self.annotations:
+            df = pd.concat((df, self.annotations[key]), ignore_index=True)
+        df.lat = np.round(df.lat * 4) / 4
+        df.lon = np.round(df.lon * 4) / 4
+        df['year'] = df.date.apply(lambda x: x.year)
+        total_duration = df.groupby(['lat', 'lon', 'year'])['duration'].sum().reset_index(name='total_duration')
+        df = df[['Annotation', 'Annotation2', 'Annotation3', 'lat', 'lon', 'year', 'duration']].melt(
+            id_vars=['lat', 'lon', 'year', 'duration']).dropna()
+        df.value[np.isin(df.value, ['Buzz', 'Clicks', 'Delphinid clicks', 'Delphinid whistle'])] = 'Delphinid'
+        species = ['ABW', 'FW', 'HW', 'MW', 'SRW', 'SW', 'Delphinid', 'Spermwhale']
+        df = df[np.isin(df.value.to_numpy(), species)].drop('variable', axis=1)
+        value_duration = (df.dropna(subset=['value'])
+                          .groupby(['lat', 'lon', 'year', 'value'])['duration']
+                          .sum()
+                          .reset_index(name='value_duration'))
+        result = value_duration.merge(total_duration, on=['lat', 'lon', 'year'])
+        result['proportion'] = result['value_duration'] / result['total_duration']
+        self.map_annotation = result
+
     def simple_logistic_regression(self, depids, ind_var = 'jerk'):
         """
         Logistic regression to predict cetacean presence based on three classes : spermwhale, delphinid and baleen whales
