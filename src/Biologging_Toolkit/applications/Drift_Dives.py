@@ -4,6 +4,7 @@ import os
 import umap.umap_ as umap
 import hdbscan
 import netCDF4 as nc
+import pandas as pd
 from tqdm import tqdm
 from scipy.interpolate import interp1d
 from sklearn.metrics import confusion_matrix, f1_score
@@ -311,6 +312,14 @@ class DriftDives(Wrapper) :
 			drifts[(timestamps >= _start) & (timestamps <= _stop)] = 1
 		metadata = {**{'method':'Clustering', 'features':f' Hz, '.join(self.posfeatures.astype(str))}, **metadata}
 		self.create_variable('cluster_drifts', drifts, timestamps, overwrite, **metadata)
+
+	def save_to_csv(self, path, name):
+		dive_csv = pd.read_csv(path)
+		dive_csv[name] = self.clusterer.labels_
+		if name + '_embed0' not in dive_csv.columns :
+			dive_csv[name + '_embed0'] = self.embed[:, 0]
+			dive_csv[name + '_embed1'] = self.embed[:, 1]
+		dive_csv.to_csv(path, index=False)
 
 	def acoustic_threshold(self, frequency : Union[List, int, str] = 'all', acoustic_path = None, N = 5, threshold = None):
 		if not threshold :
