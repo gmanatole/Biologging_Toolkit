@@ -143,27 +143,39 @@ class Whales():
                 sal_var = 'PSAL'
             else :
                 sal_var = 'PSAL_ADJUSTED'
+            if np.all(ctd_ds['CHLA_ADJUSTED'][:].mask):
+                chla_var = 'CHLA'
+            else :
+                chla_var = 'CHLA_ADJUSTED'
             temp = ctd_ds[temp_var][:].data
             temp[ctd_ds[temp_var][:].mask] = np.nan
             sal = ctd_ds[sal_var][:].data
             sal[ctd_ds[sal_var][:].mask] = np.nan
-            ctd, surface = [], []
+            chla = ctd_ds[chla_var][:].data
+            chla[ctd_ds[chla_var][:].mask] = np.nan
+            temp_ctd, temp_surface = [], []
             sal_ctd, sal_surface = [], []
-            for temp_profile, sal_profile in zip(temp, sal):
+            chla_ctd, chla_surface = [], []
+            for temp_profile, sal_profile, chla_profile in zip(temp, sal, chla):
                 try:
-                    ctd.append(np.nanmean(temp_profile))
-                    surface.append(temp_profile[10])
+                    temp_ctd.append(np.nanmean(temp_profile))
+                    temp_surface.append(temp_profile[10])
                     sal_ctd.append(np.nanmean(sal_profile))
                     sal_surface.append(sal_profile[10])
+                    chla_ctd.append(np.nanmean(chla_profile))
+                    chla_surface.append(chla_profile[10])
                 except ValueError:
-                    ctd.append(np.nan)
-                    surface.append(np.nan)
+                    temp_ctd.append(np.nan)
+                    temp_surface.append(np.nan)
                     sal_ctd.append(np.nan)
                     sal_surface.append(np.nan)
-            temp_df = pd.DataFrame({'time':ctd_time, 'temp_ctd':ctd, 'temp_surface':surface, 'sal_ctd':sal_ctd, 'sal_surface':sal_surface})
+                    chla_ctd.append(np.nan)
+                    chla_surface.append(np.nan)
+            temp_df = pd.DataFrame({'time':ctd_time, 'temp_ctd':temp_ctd, 'temp_surface':temp_surface,
+                                    'sal_ctd':sal_ctd, 'sal_surface':sal_surface, 'chla_ctd':chla_ctd, 'chla_surface':chla_surface})
             temp_df['date'] = pd.to_datetime(temp_df['time'], unit='s').dt.date
             temp_df = temp_df.groupby('date').agg('mean').reset_index()
-            self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'temp_ctd', 'temp_surface', 'sal_ctd', 'sal_surface']], on='date', how='left')
+            self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'temp_ctd', 'temp_surface', 'sal_ctd', 'sal_surface', 'chla_ctd', 'chla_surface']], on='date', how='left')
             _temp = self.daily[depid]['temp'].to_numpy()
             _sal = self.daily[depid]['sal'].to_numpy()
             _surf_temp = self.daily[depid]['surface_temp'].to_numpy()
