@@ -107,15 +107,19 @@ class Whales():
             ds = nc.Dataset(path)
             aux = pd.DataFrame()
             dives = ds['dives'][:].data
+            depth = ds['depth'][:].data
             aux['dives'] = np.unique(dives)
             aux['time'] = np.array([ds['time'][:].data[dives == _dive][0].item() for _dive in aux.dives])
             aux['jerk'] = np.array([np.nansum(ds['jerk'][:].data[dives == _dive] >= 400) for _dive in aux.dives])
             aux['bathy'] = np.array([np.nanmean(ds['bathymetry'][:].data[dives == _dive]) for _dive in aux.dives])
             aux['flash'] = np.array([np.nansum(ds['flash'][:].data[:,2][dives == _dive]) for _dive in aux.dives])
             aux['temp'] = np.array([np.nanmean(ds['temperature'][:].data[dives == _dive]) for _dive in aux.dives])
+            aux['surface_temp'] = np.array([np.nanmean(ds['temperature'][:].data[(dives == _dive) & (depth <= 10)]) for _dive in aux.dives])
+            aux['sal'] = np.array([np.nanmean(ds['salinity'][:].data[dives == _dive]) for _dive in aux.dives])
+            aux['surface_sal'] = np.array([np.nanmean(ds['salinity'][:].data[(dives == _dive) & (depth <= 10)]) for _dive in aux.dives])
             aux['date'] = pd.to_datetime(aux['time'], unit='s').dt.date
             aux = aux.groupby('date').agg('mean').reset_index()
-            self.daily[depid] = pd.merge(self.daily[depid], aux[['date','jerk','flash', 'temp', 'bathy']], on='date', how='left')
+            self.daily[depid] = pd.merge(self.daily[depid], aux[['date','jerk','flash', 'temp', 'bathy','sal','surface_temp','surface_sal']], on='date', how='left')
             if pos :
                 self.pos[depid] = pd.DataFrame({'lat':ds['lat'][:].data[::100], 'lon':ds['lon'][:].data[::100]})
         if save :
@@ -135,27 +139,50 @@ class Whales():
                 temp_var = 'TEMP'
             else:
                 temp_var = 'TEMP_ADJUSTED'
+            if np.all(ctd_ds['PSAL_ADJUSTED'][:].mask):
+                sal_var = 'PSAL'
+            else :
+                sal_var = 'PSAL_ADJUSTED'
             temp = ctd_ds[temp_var][:].data
             temp[ctd_ds[temp_var][:].mask] = np.nan
+            sal = ctd_ds[sal_var][:].data
+            sal[ctd_ds[sal_var][:].mask] = np.nan
             ctd, surface = [], []
-            for profile in temp:
+            sal_ctd, sal_surface = [], []
+            for temp_profile, sal_profile in zip(temp, sal):
                 try:
-                    ctd.append(np.nanmean(profile))
-                    surface.append(profile[10])
+                    ctd.append(np.nanmean(temp_profile))
+                    surface.append(temp_profile[10])
+                    sal_ctd.append(np.nanmean(sal_profile))
+                    sal_surface.append(sal_profile[10])
                 except ValueError:
                     ctd.append(np.nan)
                     surface.append(np.nan)
-            temp_df = pd.DataFrame({'time':ctd_time, 'ctd':ctd, 'surface':surface})
+                    sal_ctd.append(np.nan)
+                    sal_surface.append(np.nan)
+            temp_df = pd.DataFrame({'time':ctd_time, 'temp_ctd':ctd, 'temp_surface':surface, 'sal_ctd':sal_ctd, 'sal_surface':sal_surface})
             temp_df['date'] = pd.to_datetime(temp_df['time'], unit='s').dt.date
             temp_df = temp_df.groupby('date').agg('mean').reset_index()
-            self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'ctd', 'surface']], on='date', how='left')
+            self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'temp_ctd', 'temp_surface', 'sal_ctd', 'sal_surface']], on='date', how='left')
             _temp = self.daily[depid]['temp'].to_numpy()
-            try:
-                _temp[~np.isnan(self.daily[depid]['ctd'].to_numpy())] = np.isnan(self.daily[depid]['ctd'].to_numpy())[
-                    ~np.isnan(self.daily[depid]['ctd'].to_numpy())]
-            except:
+            _sal = self.daily[depid]['sal'].to_numpy()
+            _surf_temp = self.daily[depid]['surface_temp'].to_numpy()
+            _surf_sal = self.daily[depid]['surface_sal'].to_numpy()
+            temp_ctd = self.daily[depid]['temp_ctd'].to_numpy()
+            sal_ctd = self.daily[depid]['sal_ctd'].to_numpy()
+            surf_temp_ctd = self.daily[depid]['temp_surface'].to_numpy()
+            surf_sal_ctd = self.daily[depid]['sal_surface'].to_numpy()
+            try :
+                _temp[~np.isnan(temp_ctd)] = temp_ctd[~np.isnan(temp_ctd)]
+                _sal[~np.isnan(sal_ctd)] = sal_ctd[~np.isnan(sal_ctd)]
+                _surf_temp[~np.isnan(surf_temp_ctd)] = surf_temp_ctd[~np.isnan(surf_temp_ctd)]
+                _surf_sal[~np.isnan(surf_sal_ctd)] = surf_sal_ctd[~np.isnan(surf_sal_ctd)]
+            except :
                 pass
             self.daily[depid]['temperature'] = np.nan_to_num(_temp)
+            self.daily[depid]['salinity'] = np.nan_to_num(_sal)
+            self.daily[depid]['surface_temperature'] = np.nan_to_num(_surf_temp)
+            self.daily[depid]['surface_salinity'] = np.nan_to_num(_surf_sal)
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)
