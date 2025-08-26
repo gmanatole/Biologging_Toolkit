@@ -34,7 +34,37 @@ def plot_clusters(drift, save = False, save_path = '.'):
     scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu')
     for label in np.unique(labels):
         ax[1].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'Cluster {label}')
-    ax[1].legend(title="Clusters")
+    ax[1].legend(title="Clusters", loc = 'upper right')
+    fig.tight_layout()
+    fig.show()
+    if save:
+        fig.savefig(os.path.join(save_path, 'clustering_drift_dives.pdf'))
+
+def isolate_clusters(drift, save = False, save_path = '.', clusters = [0]):
+    fig, ax = plt.subplots(1,2, figsize = (10,5))
+    dives = drift.ds['dives'][:]
+    acc_drifts = drift.ds['acc_drift'][:].data.astype(int)
+    depth_drifts = drift.ds['depth_drift'][:].data.astype(int)
+    drifts = acc_drifts & depth_drifts
+    labels = []
+    for fn in drift.cluster_fns :
+        dive = int(fn.split('.')[0][-4:])
+        if np.all(drifts[dives == dive] == 0) == False :
+            labels.append(1)
+        else :
+            labels.append(0)
+    scatter = ax[0].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu')
+    label_gt = {0:'Active dive', 1:'Drift dive'}
+    for label in np.unique(labels):
+        ax[0].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'{label_gt[label]}')
+    ax[0].legend(title="Clusters")
+    labels = drift.clusterer.labels_.copy()
+    labels[np.isin(labels, clusters)] = 1e3
+    labels[labels != 1e3] = 0
+    scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu')
+    for label in np.unique(labels):
+        ax[1].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'Cluster {label}')
+    ax[1].legend(title="Clusters", loc = 'lower left')
     fig.tight_layout()
     fig.show()
     if save:
