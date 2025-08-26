@@ -16,13 +16,99 @@ import cartopy.feature as cfeature
 import cartopy.io.shapereader as shpreader
 from sklearn import metrics
 
-def pairplot(w, vars = ['jerk']) :
-    pass
+
+def plot_confidence_index_detections(ker, arg, annotation_path, results_path, savefig = False, save_path = '.') :
+    w = Whales(ker + arg,
+               annotation_path=[os.path.join(annotation_path, dep, 'formatted_timestamps.csv') for dep in ker + arg])
+    results = pd.DataFrame()
+    for i in [0, 1, 2]:
+        w.idx = i
+        w.load_data(annotation_path=os.path.join(results_path, f'annotations_{i}.pkl'),
+                    daily_path=os.path.join(results_path, f'daily_pool_{i}.pkl'))
+        df = pd.concat(w.annotations.values(), ignore_index=True)
+        df['Confidence Index'] = i
+        _df = df[['baleen', 'spermwhale', 'delphinid', 'Confidence Index']]
+        _df.columns = ['Baleen', 'Spermwhale', 'Delphinid', 'Confidence Index']
+        results = pd.concat((results, _df), ignore_index=True)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    results = results.melt(id_vars='Confidence Index')
+    results.columns = ['Confidence Index', 'Annotation', 'Number of drift dives with detections']
+    agg_results = results.groupby(['Confidence Index', 'Annotation'], as_index=False)[
+        'Number of drift dives with detections'].sum()
+    sns.barplot(data=agg_results, x='Confidence Index', y='Number of drift dives with detections', hue='Annotation',
+                ax=ax)
+    print(agg_results)
+    if savefig :
+        fig.savefig(save_path)
+
+def score_confidence_index(score_path, save = False, save_path = '.') :
+    df = pd.read_csv(score_path, header=None)
+    df1 = pd.DataFrame()
+    df1['F1'] = df.iloc[2:, [3, 6, 9, 12, 15]].astype(float).mean(axis=1)
+    df1['Recall'] = df.iloc[2:, [4, 7, 10, 13, 16]].astype(float).mean(axis=1)
+    df1['Precision'] = df.iloc[2:, [5, 8, 11, 14, 17]].astype(float).mean(axis=1)
+    df1['Specie'] = df[0].iloc[2:]
+    df1['Confidence'] = df[1].iloc[2:]
+    df1['Population'] = df[2].iloc[2:]
+
+    specie_name = {"Baleen":"Baleen whales", "Delphinid":"Delphinids","Spermwhale":"Spermwhale"}
+    df_long = df1.melt(id_vars=["Population", "Specie", "Confidence"],value_vars=["F1", "Recall", "Precision"],var_name="metric",value_name="score")
+    conf_order = df_long["Confidence"].unique()
+    conf_positions = {sp: i * 2 + 1 for i, sp in enumerate(conf_order)}
+    pop_offsets = {p: -0.2 if i == 0 else 0.2 for i, p in enumerate(df_long["Population"].unique())}
+    pop_symbol = {'Arg': '^', 'Ker': 's'}
+    pop_name = {"Arg": "Argentina", "Ker": "Kerguelen"}
+    metric_colors = {"F1": "red", "Recall": "blue", "Precision": "green"}
+    species_levels = df_long["Specie"].unique()
+    with plt.rc_context({'font.size': 14}):
+        fig, axes = plt.subplots(1, len(species_levels), figsize=(18, 6), sharey=True)
+        for ax, spec in zip(axes, species_levels):
+            df_sub = df_long[df_long["Specie"] == spec]
+            for _, row in df_sub.iterrows():
+                x_base = conf_positions[row["Confidence"]]
+                x = x_base + pop_offsets[row["Population"]]
+                ax.scatter(x, row["score"],color=metric_colors[row["metric"]],marker=pop_symbol[row['Population']], s=100, edgecolor="black")
+                ax.set_xticks(list(conf_positions.values()))
+            ax.set_xticklabels([''.join([x[0].upper() for x in value.split(' ')]) for value in list(conf_positions.keys())])
+            ax.set_title(f"{specie_name[spec]}")
+            ax.set_xlabel("")
+            ax.set_ylabel("Score")
+            ax.grid(True, axis="y", linestyle="--", alpha=0.5)
+        handles = [plt.Line2D([0], [0], marker="s", color=c, linestyle="", markersize=10, markeredgecolor="black")
+                   for m, c in metric_colors.items()]
+        labels = list(metric_colors.keys())
+        pop_handles = [plt.Line2D([0], [0], marker=mk, color="gray", linestyle="", markersize=10, markeredgecolor="black")
+            for p, mk in pop_symbol.items()]
+        pop_labels = [pop_name[key] for key in pop_symbol.keys()]
+        fig.legend(handles=handles + pop_handles,labels=labels + pop_labels, bbox_to_anchor=(0.9, 0.6),loc="upper left",frameon=True)
+        if save :
+            fig.savefig(os.path.join(save_path, 'score_confidence_index.pdf'), bbox_inches='tight')
+def pairplot(w, vars = ['jerk'], arg = [], ker = [], save = False, save_path = '.') :
+    names = {'surface_temp':'Surface temperature', 'bathy':'Bathymetry', 'flash':'Flashes',
+             'jerk':'PrCAs', 'temp':'Temperature', 'sal':'Salinity', 'loc':'Population'}
+    df = pd.DataFrame()
+    for key in w.daily.keys() :
+        if key in arg :
+            w.daily[key]['loc'] = 'Argentina'
+        elif key in ker :
+            w.daily[key]['loc'] = 'Kerguelen'
+        else :
+            w.daily[key]['loc'] = 'any'
+        df = pd.concat((df, w.daily[key]))
+    df.reset_index(inplace = True)
+    df.columns = [names[_col] if _col in list(names.keys()) else _col for _col in list(df.columns)]
+    vars.append('loc')
+    vars = [names[var] for var in vars]
+    g = sns.pairplot(df[vars], hue = 'Population')
+    if save :
+        g.tight_layout()
+        g.savefig(os.path.join(save_path, 'var_pairplot.pdf'))
 
 def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
     regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
     colors = ['deeppink', 'gold', 'magenta']
-    features = {'bathy':'bathymetry','jerk':'number of jerks', 'flash':'number of jerks','temp':'temperature'}
+    features = {'bathy':'bathymetry','jerk':'number of jerks', 'flash':'number of jerks','temp':'temperature',
+                'surface_temp':'surface temperature'}
     if X_test.shape[1] == 2 :
         fig, ax = plt.subplots(2, 3, figsize = (15,11))
         for i, (feature, fixed) in enumerate(zip(['flash','jerk'],['jerk','flash'])) :
