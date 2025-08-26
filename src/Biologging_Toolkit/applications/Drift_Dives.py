@@ -315,10 +315,17 @@ class DriftDives(Wrapper) :
 
 	def save_to_csv(self, path, name):
 		dive_csv = pd.read_csv(path)
-		dive_csv[name] = self.clusterer.labels_
+		embed0 = np.full(len(dive_csv), np.nan)
+		embed1 = np.full(len(dive_csv), np.nan)
+		cluster = np.full(len(dive_csv), np.nan)
+		for i, fn in enumerate(self.cluster_fns) :
+			dive_number = int(fn.split('.')[0][-4:])
+			embed0[dive_number] = self.embed[i, 0]
+			embed1[dive_number] = self.embed[i, 1]
+			cluster[dive_number] = self.clusterer.labels_[i]
 		if name + '_embed0' not in dive_csv.columns :
-			dive_csv[name + '_embed0'] = self.embed[:, 0]
-			dive_csv[name + '_embed1'] = self.embed[:, 1]
+			dive_csv[name + '_embed0'] = embed0
+			dive_csv[name + '_embed1'] = embed1
 		dive_csv.to_csv(path, index=False)
 
 	def acoustic_threshold(self, frequency : Union[List, int, str] = 'all', acoustic_path = None, N = 5, threshold = None):
