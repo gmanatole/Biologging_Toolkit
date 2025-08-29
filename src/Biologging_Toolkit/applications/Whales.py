@@ -125,6 +125,13 @@ class Whales():
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)
+    def get_pos(self, paths : Union[List, str]):
+        if isinstance(paths, str):
+            paths = [paths] * len(self.depid)
+        self.pos = {}
+        for path, depid in zip(paths, self.depid) :
+            ds = nc.Dataset(path)
+            self.pos[depid] = pd.DataFrame({'lat': ds['lat'][:].data[::100], 'lon': ds['lon'][:].data[::100]})
 
     def join_CTD(self, paths : Union[List, str], save = False, save_path = '.'):
         for path, depid in zip(paths, self.depid) :
@@ -143,7 +150,7 @@ class Whales():
                 sal_var = 'PSAL'
             else :
                 sal_var = 'PSAL_ADJUSTED'
-            if np.all(ctd_ds['CHLA_ADJUSTED'][:].mask):
+            if ('CHLA_ADJUSTED' in ctd_ds.variables.keys()) and (np.all(ctd_ds['CHLA_ADJUSTED'][:].mask)) :
                 chla_var = 'CHLA'
             else :
                 chla_var = 'CHLA_ADJUSTED'
@@ -151,12 +158,18 @@ class Whales():
             temp[ctd_ds[temp_var][:].mask] = np.nan
             sal = ctd_ds[sal_var][:].data
             sal[ctd_ds[sal_var][:].mask] = np.nan
-            chla = ctd_ds[chla_var][:].data
-            chla[ctd_ds[chla_var][:].mask] = np.nan
+            if 'CHLA_ADJUSTED' in ctd_ds.variables.keys() :
+                chla = ctd_ds[chla_var][:].data
+                chla[ctd_ds[chla_var][:].mask] = np.nan
+            else :
+                chla = np.full(temp.shape, np.nan)
+            sal[sal > 100] = np.nan
+            temp[temp > 100] = np.nan
+            chla[chla > 100] = np.nan
             temp_ctd, temp_surface = [], []
             sal_ctd, sal_surface = [], []
             chla_ctd, chla_surface = [], []
-            for temp_profile, sal_profile, chla_profile in zip(temp, sal, chla):
+            for temp_profile, sal_profile, chla_profile in zip(temp, sal, chla) :
                 try:
                     temp_ctd.append(np.nanmean(temp_profile))
                     temp_surface.append(temp_profile[10])
@@ -175,7 +188,9 @@ class Whales():
                                     'sal_ctd':sal_ctd, 'sal_surface':sal_surface, 'chla_ctd':chla_ctd, 'chla_surface':chla_surface})
             temp_df['date'] = pd.to_datetime(temp_df['time'], unit='s').dt.date
             temp_df = temp_df.groupby('date').agg('mean').reset_index()
-            self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'temp_ctd', 'temp_surface', 'sal_ctd', 'sal_surface', 'chla_ctd', 'chla_surface']], on='date', how='left')
+            self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'temp_ctd', 'temp_surface', 'sal_ctd', 'sal_surface', 'chla_ctd', 'chla_surface']],
+                                         on='date', how='left', suffixes = ("_old", None))
+            self.daily[depid] = self.daily[depid][[c for c in self.daily[depid].columns if not c.endswith("_old")]]
             _temp = self.daily[depid]['temp'].to_numpy()
             _sal = self.daily[depid]['sal'].to_numpy()
             _surf_temp = self.daily[depid]['surface_temp'].to_numpy()
@@ -191,10 +206,10 @@ class Whales():
                 _surf_sal[~np.isnan(surf_sal_ctd)] = surf_sal_ctd[~np.isnan(surf_sal_ctd)]
             except :
                 pass
-            self.daily[depid]['temperature'] = np.nan_to_num(_temp)
-            self.daily[depid]['salinity'] = np.nan_to_num(_sal)
-            self.daily[depid]['surface_temperature'] = np.nan_to_num(_surf_temp)
-            self.daily[depid]['surface_salinity'] = np.nan_to_num(_surf_sal)
+            self.daily[depid]['temperature'] = _temp
+            self.daily[depid]['salinity'] = _sal
+            self.daily[depid]['surface_temperature'] = _surf_temp
+            self.daily[depid]['surface_salinity'] = _surf_sal
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)

@@ -29,9 +29,9 @@ def plot_clusters(drift, save = False, save_path = '.'):
     label_gt = {0:'Active dive', 1:'Drift dive'}
     for label in np.unique(labels):
         ax[0].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'{label_gt[label]}')
-    ax[0].legend(title="Clusters")
+    ax[0].legend(title="Clusters", loc = "upper right")
     labels = drift.clusterer.labels_
-    scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu')
+    scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu_r')
     for label in np.unique(labels):
         ax[1].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'Cluster {label}')
     ax[1].legend(title="Clusters", loc = 'upper right')

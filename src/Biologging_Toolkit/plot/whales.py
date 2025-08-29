@@ -4,6 +4,7 @@ import seaborn as sns
 import pandas as pd
 import matplotlib
 from matplotlib.lines import Line2D
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 plt.rcParams.update({
     "text.usetex": True,                # Enable LaTeX text rendering
@@ -15,7 +16,66 @@ import cartopy.crs as crs
 import cartopy.feature as cfeature
 import cartopy.io.shapereader as shpreader
 from sklearn import metrics
+from Biologging_Toolkit.utils.whale_utils import load_annotation_data
 
+def histogram_detections(ker, arg, annotation_path, idx = 0):
+    ker_drift, idx_ker, data_ker, arg_drift, idx_arg, data_arg = load_annotation_data(ker, arg, annotation_path)
+    data_arg = data_arg[idx_arg >= idx]
+    data_ker = data_ker[idx_ker >= idx]
+    _label_arg, _count_arg = np.unique(data_arg, return_counts=True)
+    _label_ker, _count_ker = np.unique(data_ker, return_counts=True)
+    hist_arg = pd.DataFrame({'Number of drift dives':len(data_arg),
+                            'Baleen':_count_arg[np.isin(_label_arg, ['ABW','FW','MW','SW','HW','Sweep','Downsweep','SRW'])].sum(),
+                            'Other odontocetes':_count_arg[np.isin(_label_arg, ['Unidentified clicks', 'Buzz', 'Clicks', 'Delphinid clicks', 'Delphinid whistle'])].sum(),
+                            'Spermwhale':_count_arg[np.isin(_label_arg, ['Spermwhale'])]}).T.reset_index()
+    hist_arg.columns = ['Label', 'Count']
+    hist_ker = pd.DataFrame({'Number of drift dives':len(data_ker),
+                            'Baleen':_count_ker[np.isin(_label_ker, ['ABW','FW','MW','SW','HW','Sweep','Downsweep','SRW'])].sum(),
+                            'Other odontocetes':_count_ker[np.isin(_label_ker, ['Unidentified clicks', 'Buzz', 'Clicks', 'Delphinid clicks', 'Delphinid whistle'])].sum(),
+                            'Spermwhale':_count_ker[np.isin(_label_ker, ['Spermwhale'])]}).T.reset_index()
+    hist_ker.columns = ['Label', 'Count']
+    primary_label = 'Number of drift dives'
+
+    primary_arg = hist_arg[hist_arg['Label'] == primary_label]
+    secondary_arg = hist_arg[hist_arg['Label'] != primary_label]
+    primary_ker = hist_ker[hist_ker['Label'] == primary_label]
+    secondary_ker = hist_ker[hist_ker['Label'] != primary_label]
+
+    primary_max = max(primary_arg['Count'].max(), primary_ker['Count'].max())
+    secondary_max = max(secondary_arg['Count'].max(), secondary_ker['Count'].max())
+
+    fig, axs = plt.subplots(1, 2, figsize=(10, 6), sharey=False)
+
+    # Argentina subplot
+    ax1 = axs[0]
+    ax1.bar(primary_arg['Label'], primary_arg['Count'], color='tab:blue')
+    ax1.set_ylabel('Number of drift dives', color='tab:blue')
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+    ax1.set_ylim(0, primary_max * 1.1)
+    ax1_2 = ax1.twinx()
+    ax1_2.bar(secondary_arg['Label'], secondary_arg['Count'], color='tab:orange')
+    ax1_2.set_ylabel('Other counts', color='tab:orange')
+    ax1_2.tick_params(axis='y', labelcolor='tab:orange')
+    ax1_2.set_ylim(0, secondary_max * 1.1)
+    ax1.set_title('Argentina')
+    ax1.set_xticklabels(['Number of drift dives', 'Baleen', 'Other odontocetes', 'Spermwhale'], rotation=45)
+
+    # Kerguelen subplot
+    ax2 = axs[1]
+    ax2.bar(primary_ker['Label'], primary_ker['Count'], color='tab:blue')
+    ax2.set_ylabel('Number of drift dives', color='tab:blue')
+    ax2.tick_params(axis='y', labelcolor='tab:blue')
+    ax2.set_ylim(0, primary_max * 1.1)
+    ax2_2 = ax2.twinx()
+    ax2_2.bar(secondary_ker['Label'], secondary_ker['Count'], color='tab:orange')
+    ax2_2.set_ylabel('Other counts', color='tab:orange')
+    ax2_2.tick_params(axis='y', labelcolor='tab:orange')
+    ax2_2.set_ylim(0, secondary_max * 1.1)
+    ax2.set_title('Kerguelen')
+    ax2.set_xticklabels(['Number of drift dives', 'Baleen', 'Other odontocetes', 'Spermwhale'], rotation=45)
+
+    plt.tight_layout()
+    plt.show()
 
 def plot_confidence_index_detections(ker, arg, annotation_path, results_path, savefig = False, save_path = '.') :
     w = Whales(ker + arg,
@@ -85,7 +145,7 @@ def score_confidence_index(score_path, save = False, save_path = '.') :
             fig.savefig(os.path.join(save_path, 'score_confidence_index.pdf'), bbox_inches='tight')
 def pairplot(w, vars = ['jerk'], arg = [], ker = [], save = False, save_path = '.') :
     names = {'surface_temp':'Surface temperature', 'bathy':'Bathymetry', 'flash':'Flashes',
-             'jerk':'PrCAs', 'temp':'Temperature', 'sal':'Salinity', 'loc':'Population'}
+             'jerk':'PrCAs', 'temp':'Temperature', 'sal':'Salinity', 'loc':'Population', 'chla_ctd':'Chlorophyll-a'}
     df = pd.DataFrame()
     for key in w.daily.keys() :
         if key in arg :
@@ -163,6 +223,61 @@ def prediction_conf_matrix(y_test, y_pred, save = False, save_path = '.', type =
     fig.show()
     if save :
         fig.savefig(os.path.join(save_path, f'{type}_matrix_whales.pdf'))
+
+
+def patron_saisonnier(w, ker, arg):
+
+    final_labels = ['SW', 'HW', 'SRW', 'Spermwhale', 'FW', 'MW', 'ABW', 'Delphinid']
+    fig = plt.figure(figsize=(15, 25))
+    gs0 = gridspec.GridSpec(4, 2, figure=fig)
+
+    axes = []
+    for i in range(8):
+        inner = gridspec.GridSpecFromSubplotSpec(3, 1, subplot_spec=gs0[i])
+        sub_axes = []
+        ax0 = fig.add_subplot(inner[0])
+        ax0.set_title(final_labels[i])
+        ax0.text(1.02, 0.5, "Kerguelen",transform=ax0.transAxes,rotation=-90, va="center", ha="left")
+        sub_axes.append(ax0)
+        ax1 = fig.add_subplot(inner[1])
+        ax1.text(1.02, 0.5, "Peninsula Valdés",transform=ax1.transAxes,rotation=-90, va="center", ha="left")
+        sub_axes.append(ax1)
+        inner_inner = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=inner[2], wspace=0.3)
+        ax2_left = fig.add_subplot(inner_inner[0])
+        ax2_right = fig.add_subplot(inner_inner[1])
+        sub_axes.extend([ax2_left, ax2_right])
+        axes.append(sub_axes)
+
+    for i, population in enumerate([ker, arg]) :
+        df = pd.concat([w.annotations[_ml] for _ml in population])
+        annotation_cols = ["Annotation", "Annotation2", "Annotation3"]
+        unique_labels = ['SW', 'HW', 'SRW', 'Spermwhale', 'FW', 'MW', 'ABW', 'Buzz', 'Clicks', 'Delphinid clicks', 'Delphinid whistle']
+        for label in unique_labels:
+            df[label] = df[annotation_cols].eq(label).any(axis=1).astype(int)
+        df['Delphinid'] = np.max(df[['Clicks', 'Delphinid clicks', 'Delphinid whistle', 'Buzz']].to_numpy(), axis = 1)
+        daily = df[['date','duration', 'lat','lon']+final_labels].groupby('date').agg({'duration':'sum','lat':'mean','lon':'mean',})
+        for label in final_labels:
+            _temp = df[['date','duration']][df[label] == 1].groupby('date').agg('sum')
+            daily = daily.join(_temp, on='date', rsuffix=f'_{label}').fillna({f'duration_{label}': 0})
+        daily.reset_index(inplace = True)
+        daily["date"] = pd.to_datetime(daily.date)
+        daily["month_day"] = daily["date"].dt.strftime("%m-%d")
+        daily = daily.groupby("month_day")[["duration", "duration_SW", "duration_Delphinid", "duration_Spermwhale", "duration_HW",
+                                    "duration_ABW", "duration_SRW", "duration_MW", "duration_FW"]].sum().reset_index()
+        daily.loc[0] = ['10-08',1,0,0,0,0,0,0,0,0]
+        daily.loc[len(daily)] = ['12-16',1,0,0,0,0,0,0,0,0]
+        daily["month_day_dt"] = pd.to_datetime("2021-" + daily["month_day"])
+        for j, label in enumerate(final_labels) :
+            axes[j][i].bar(daily.month_day_dt, daily[f'duration_{label}']/daily.duration)
+            xticks = pd.to_datetime(["2021-10-15", "2021-11-01", "2021-11-15", "2021-12-01", "2021-12-15"])
+            if i == 0:
+                axes[j][i].set_xticks(xticks)
+                axes[j][i].set_xticklabels(["","","","",""])
+            if i == 1:
+                axes[j][i].set_xticks(xticks)
+                axes[j][i].set_xticklabels([d.strftime("%b %d") for d in xticks])
+            axes[j][i].set_ylim(0,1)
+            axes[j][i].set_yticks([0, 0.25, 0.5, 0.75, 1])
 
 
 def bubble_map(whale, depid, colorbar = True, legend_loc = 'upper left', save = True, save_path = '.'):
@@ -257,7 +372,6 @@ def bubble_map(whale, depid, colorbar = True, legend_loc = 'upper left', save = 
     fig.show()
 
 def load_bathymetry()  :  # Load data (14.8 MB file)
-
     depths_str, shp_dict = download_bathymetry(
         'https://naturalearth.s3.amazonaws.com/' +
         '10m_physical/ne_10m_bathymetry_all.zip')

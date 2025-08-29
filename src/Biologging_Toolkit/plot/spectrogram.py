@@ -88,7 +88,7 @@ def interactive_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nper
 			z=10 * np.log10(Sxx),
 			x=t,
 			y=f,
-			colorscale='Viridis',
+			colorscale='viridis',
 			showscale = False
 		))
 
@@ -213,23 +213,22 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2
 		'x-label': 'Time (s)',
 		'path':'.',
 		'aspect':'equal',
-		'cmap':'Viridis'}
+		'cmap':'binary'}
 	params = {**orig, **kwargs}
 	debut = debut.replace(tzinfo = timezone.utc).timestamp()
 	fin = fin.replace(tzinfo = timezone.utc).timestamp()
 	# Compute spectrogram
 	timestamps = get_timestamp(raw_path)
 	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg, noverlap)
-
 	fig, ax = plt.subplots(figsize = params['figsize'])
 	ax.imshow(np.log10(Sxx), origin='lower', aspect = params['aspect'], cmap = params['cmap'], extent=[t[0], t[-1], f[0], f[-1]])
-	ax.set_xticks(np.linspace(t[0], t[-1], num=6)) 
-	ax.set_xticklabels([f"{tick:.1f}" for tick in np.linspace(0, fin-debut, num=6)]) 
-	ax.set_yticks(np.linspace(f[0], f[-1], num=6))
-	ax.set_yticklabels([f"{tick:.0f}" for tick in np.linspace(f[0], f[-1], num=6)])
+	ax.set_xticks(np.arange(t[0], t[-1], 20))
+	ax.set_xticklabels([f"{tick:.1f}" for tick in np.arange(0, fin-debut, 20)])
+	ax.set_yticks(np.arange(freq_min, freq_max, 25))
+	ax.set_yticklabels([f"{tick:.0f}" for tick in np.arange(freq_min, freq_max, 25)])
 	ax.set_ylabel(params['y-label'])
 	ax.set_xlabel(params['x-label'])
-	ax.set_title(params['title'])
+	ax.grid(False)
 	fig.tight_layout()
 	if save:
 		fig.savefig(os.path.join(params['path'], f"{params['title']}.pdf"), bbox_inches='tight',pad_inches = 0.1)

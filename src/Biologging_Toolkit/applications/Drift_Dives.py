@@ -284,7 +284,7 @@ class DriftDives(Wrapper) :
 			start, stop = [], []
 			for fn in fns:
 				data = np.load(fn)
-				if data['len_spectro'] <= tmax*20:
+				if (data['len_spectro'] <= tmax*20) or (np.nanmax(data['depth']) < 200):
 					continue
 				_data = data['spectro'][int(tmin*20):int(tmax*20):timestep, self.posfeatures]
 				if np.isnan(_data).sum() != 0 :
