@@ -243,6 +243,7 @@ class DriftDives(Wrapper) :
 						 timestep = 5,
 						 tmin = 0,
 						 tmax = 15,
+						 bathy = [0, 20000],
 						 acoustic_path = None,
 						 min_cluster_size = 50,
 						 min_samples = 10,
@@ -282,9 +283,11 @@ class DriftDives(Wrapper) :
 			X = []
 			_fns = []
 			start, stop = [], []
-			for fn in fns:
+			for fn in tqdm(fns):
 				data = np.load(fn)
-				if (data['len_spectro'] <= tmax*20) or (np.nanmax(data['depth']) < 200):
+				if (data['len_spectro'] <= tmax*20) or (np.nanmax(data['depth']) < 50) :
+					continue
+				if not  bathy[0] <= np.nanmax(data['bathymetry']) <= bathy[-1]:
 					continue
 				_data = data['spectro'][int(tmin*20):int(tmax*20):timestep, self.posfeatures]
 				if np.isnan(_data).sum() != 0 :
