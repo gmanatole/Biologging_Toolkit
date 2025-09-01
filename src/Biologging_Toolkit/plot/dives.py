@@ -13,7 +13,7 @@ plt.rcParams.update({
 })
 
 def plot_clusters(drift, save = False, save_path = '.'):
-    fig, ax = plt.subplots(1,2, figsize = (10,5))
+    fig, ax = plt.subplots(1,2, figsize = (10,3))
     dives = drift.ds['dives'][:]
     acc_drifts = drift.ds['acc_drift'][:].data.astype(int)
     depth_drifts = drift.ds['depth_drift'][:].data.astype(int)
@@ -29,13 +29,23 @@ def plot_clusters(drift, save = False, save_path = '.'):
     label_gt = {0:'Active dive', 1:'Drift dive'}
     for label in np.unique(labels):
         ax[0].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'{label_gt[label]}')
-    ax[0].legend(title="Clusters", loc = "upper right")
+    ax[0].legend(title="Clusters", loc = "upper left")
     labels = drift.clusterer.labels_
-    scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu_r')
+    scatter = ax[1].scatter(drift.embed[:, 0], drift.embed[:, 1], c=labels, s = 7, cmap = 'RdYlBu')
     for label in np.unique(labels):
         ax[1].scatter([], [], c=scatter.cmap(scatter.norm(label)), label=f'Cluster {label}')
-    ax[1].legend(title="Clusters", loc = 'upper right')
+    ax[1].legend(title="Clusters", loc = 'upper left')
     fig.tight_layout()
+    for _ax in ax :
+        _ax.set_facecolor("white")
+        _ax.grid(False)
+        legend = _ax.legend()
+        legend.get_frame().set_facecolor("white")
+        legend.get_frame().set_edgecolor("black")
+        for spine in _ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color("black")
+    fig.patch.set_facecolor("white")
     fig.show()
     if save:
         fig.savefig(os.path.join(save_path, 'clustering_drift_dives.pdf'))
