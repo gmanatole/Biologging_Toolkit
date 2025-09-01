@@ -243,7 +243,7 @@ class DriftDives(Wrapper) :
 						 timestep = 5,
 						 tmin = 0,
 						 tmax = 15,
-						 bathy = [0, 20000],
+						 bathy = [-30000,0],
 						 acoustic_path = None,
 						 min_cluster_size = 50,
 						 min_samples = 10,
