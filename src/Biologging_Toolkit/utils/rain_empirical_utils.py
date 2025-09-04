@@ -970,7 +970,12 @@ def plot_rain_estimation(inst:Rain, subset = "test"):
     plt.ylabel("Precipitation (mm/h)")
     plt.legend()
 
-def plot_spectro_size_repartition(depids,path):
+def plot_spectro_size_repartition(depids,path,savefig=""):
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman"],
+        "text.usetex": True  
+    })
     dims = []
     for depid in depids:
         _df = pd.read_csv(os.path.join(path,depid,f"{depid}_dive.csv"))
@@ -990,7 +995,7 @@ def plot_spectro_size_repartition(depids,path):
     labels = []
 
     for i, depid in enumerate(depids):
-        values = [dims[j][0][0] for j, d in enumerate(dims) if d[1] == depid]
+        values = [(dims[j][0][0]*3)/60 for j, d in enumerate(dims) if d[1] == depid]
         data_grouped.append(values)
         labels.append(depid)
 
@@ -998,10 +1003,13 @@ def plot_spectro_size_repartition(depids,path):
 
     for patch, color in zip(box['boxes'], colors):
         patch.set_facecolor(color)
-
-    plt.xticks(rotation=45)
+    plt.ylabel("Dive time (min)")
+    plt.xticks(rotation=0)
     plt.tight_layout()
-    plt.show()
+    if savefig != "":
+        plt.savefig(savefig, bbox_inches='tight')
+    else:
+        plt.show()
 
 def print_metrics(y_preds, y_test):
     mae = metrics.mean_absolute_error(y_test, y_preds)

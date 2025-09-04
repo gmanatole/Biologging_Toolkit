@@ -36,7 +36,8 @@ class Rain():
 		df_data = "csv",
 		empirical_offset = 1.25,
 		optimised_tresh = True,
-		frequency = 5000
+		frequency = 5000,
+		wind_tresh = 7
 		):
 
 		"""
@@ -71,7 +72,6 @@ class Rain():
 		self.calculate_and_add_slope(2000,8000)
 		self.calculate_and_add_slope(8000,15000)
 
-		wind_tresh = 7
 		conditions = [
 			(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] < wind_tresh),
 			(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] >= wind_tresh),
