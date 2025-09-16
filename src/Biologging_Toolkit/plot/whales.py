@@ -17,6 +17,7 @@ import cartopy.feature as cfeature
 import cartopy.io.shapereader as shpreader
 from sklearn import metrics
 from Biologging_Toolkit.utils.whale_utils import load_annotation_data
+from Biologging_Toolkit.applications.Whales import Whales
 
 def histogram_detections(ker, arg, annotation_path, idx = 0):
     ker_drift, idx_ker, data_ker, arg_drift, idx_arg, data_arg = load_annotation_data(ker, arg, annotation_path)
@@ -77,7 +78,7 @@ def histogram_detections(ker, arg, annotation_path, idx = 0):
     plt.tight_layout()
     plt.show()
 
-def plot_confidence_index_detections(ker, arg, annotation_path, results_path, savefig = False, save_path = '.') :
+def plot_confidence_index_detections(ker, arg, annotation_path, results_path, save = False, save_path = '.') :
     w = Whales(ker + arg,
                annotation_path=[os.path.join(annotation_path, dep, 'formatted_timestamps.csv') for dep in ker + arg])
     results = pd.DataFrame()
@@ -93,12 +94,14 @@ def plot_confidence_index_detections(ker, arg, annotation_path, results_path, sa
     fig, ax = plt.subplots(figsize=(5, 5))
     results = results.melt(id_vars='Confidence Index')
     results.columns = ['Confidence Index', 'Annotation', 'Number of drift dives with detections']
+    custom_colors = ['darkblue', 'yellow','turquoise']
     agg_results = results.groupby(['Confidence Index', 'Annotation'], as_index=False)[
         'Number of drift dives with detections'].sum()
     sns.barplot(data=agg_results, x='Confidence Index', y='Number of drift dives with detections', hue='Annotation',
-                ax=ax)
+                ax=ax, palette=custom_colors, alpha = 1)
+    ax.grid(False)
     print(agg_results)
-    if savefig :
+    if save :
         fig.savefig(save_path)
 
 def score_confidence_index(score_path, save = False, save_path = '.') :

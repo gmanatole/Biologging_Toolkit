@@ -42,7 +42,7 @@ class Wind():
 		self.depid = depid
 		self.path = path
 		if acoustic_path :
-			self.acoustic_path = [acoustic_path]
+			self.acoustic_path = acoustic_path
 		else :
 			self.acoustic_path = ['']*len(self.depid)
 		if isinstance(self.depid, List) :
@@ -50,6 +50,7 @@ class Wind():
 		else :
 			self.depid = [self.depid]
 			self.path = [self.path]
+			self.acoustic_path = [self.acoustic_path]
 
 		self.ground_truth = ground_truth
 		self.method = empirical[method]
@@ -133,6 +134,25 @@ class Wind():
 			dive.dive_ds['wind_speed'] = wind_speed
 			dive.dive_ds[f'{method}_{aggregation}_{frequency}'] = spl
 			dive.dive_ds.to_csv(dive.dive_path, index = None)
+
+	def get_fine_scale(self, depth = [0, 2000]) :
+		for i, depid in enumerate(self.depid) :
+			wind_speed = []
+			spl = []
+			fns = glob(os.path.join(self.acoustic_path[i], '*.npz'))
+			for fn in tqdm(fns) :
+				try :
+					_data = np.load(fn)
+				except FileNotFoundError :
+					continue
+				idx_freq = np.argmin(abs(_data['freq'] - self.method['frequency']))
+				_spectro = _data['spectro']
+				_spectro = _spectro[(depth[0] <= _data['depth']) & (_data['depth'] <= depth[1])]
+				spl.extend(_spectro[:, idx_freq])
+				_ws = _data['wind_speed']
+				_ws = _ws[(depth[0] <= _data['depth']) & (_data['depth'] <= depth[1])]
+				wind_speed.extend(_ws)
+		self.df = pd.DataFrame({self.method["frequency"]:np.array(spl), 'wind_speed':np.array(wind_speed)})
 	
 	def median_filtering(self, kernel_size = 5):
 		'''
@@ -196,12 +216,14 @@ class Wind():
 		self.df['classes'] = self.df['wind_speed'].apply(beaufort)
 		self.df['skf_estimation'] = np.nan
 		self.df = self.df.dropna(subset = [self.method['frequency'], 'wind_speed'])
+		self.df = self.df.reset_index()
 		skf = StratifiedKFold(n_splits=params['n_splits'])
 		for i, (train_index, test_index) in enumerate(skf.split(self.df[self.method['frequency']], self.df.classes)):
 			trainset = self.df.iloc[train_index]
 			testset = self.df.iloc[test_index]
 			popt, popv = curve_fit(self.method['function'], trainset[self.method['frequency']].to_numpy(), 
 						  trainset['wind_speed'].to_numpy(), bounds = params['bounds'], maxfev = params['maxfev'])
+			print(popt)
 			popt_tot.append(popt)
 			popv_tot.append(popv)
 			estimation = self.method['function'](testset[self.method['frequency']].to_numpy(), *popt)
@@ -231,7 +253,7 @@ class Wind():
 
 		self.train_split = list(set(_train_split) & set(idx))
 		self.test_split = list(set(_test_split) & set(idx))
-		self.method = func1
+		self.method['function'] = func1
 		if len(self.df.loc[self.test_split]) < 15:
 			pass
 		else:
@@ -242,7 +264,7 @@ class Wind():
 		idx = np.where(_df[variable] < threshold)[0]
 		self.train_split = list(set(_train_split) & set(idx))
 		self.test_split = list(set(_test_split) & set(idx))
-		self.method = func2
+		self.method['function'] = func2
 		if len(self.df.loc[self.test_split]) < 15:
 			pass
 		else:
