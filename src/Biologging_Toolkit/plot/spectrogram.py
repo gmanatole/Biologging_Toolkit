@@ -18,8 +18,9 @@ plt.rcParams.update({
 
 def get_timestamp(raw_path) :
 	swv_fns = np.array(glob(os.path.join(raw_path, '*wav')))
-	xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
-	xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))].flatten()
+	#xml_fns = np.array(glob(os.path.join(raw_path, '*xml')))
+	#xml_fns = xml_fns[xml_fns != glob(os.path.join(raw_path, '*dat.xml'))].flatten()
+	xml_fns = np.array([swv_fn[:-4]+'.xml' for swv_fn in swv_fns])
 	xml_start_time = get_start_date_xml(xml_fns)
 	timestamps = pd.DataFrame({'fn':swv_fns, 'begin':xml_start_time})
 	return timestamps
@@ -220,12 +221,14 @@ def plot_spectrogram(inst, debut, fin, freq_min, freq_max, raw_path, nperseg = 2
 	# Compute spectrogram
 	timestamps = get_timestamp(raw_path)
 	f, t, Sxx = compute_spectrogram(debut, fin, freq_min, freq_max, timestamps, nperseg, noverlap)
+	filter = np.percentile(Sxx, 97)
+	Sxx[Sxx > filter] = Sxx[Sxx > filter]*10
 	fig, ax = plt.subplots(figsize = params['figsize'])
 	ax.imshow(np.log10(Sxx), origin='lower', aspect = params['aspect'], cmap = params['cmap'], extent=[t[0], t[-1], f[0], f[-1]])
-	ax.set_xticks(np.arange(t[0], t[-1], 20))
-	ax.set_xticklabels([f"{tick:.1f}" for tick in np.arange(0, fin-debut, 20)])
-	ax.set_yticks(np.arange(freq_min, freq_max, 100))
-	ax.set_yticklabels([f"{tick:.0f}" for tick in np.arange(freq_min, freq_max, 100)])
+	ax.set_xticks(np.arange(t[0], t[-1], 5))
+	ax.set_xticklabels([f"{tick:.1f}" for tick in np.arange(0, fin-debut, 5)])
+	ax.set_yticks(np.arange(freq_min, freq_max, 500))
+	ax.set_yticklabels([f"{tick:.0f}" for tick in np.arange(freq_min, freq_max, 500)])
 	ax.set_ylabel(params['y-label'])
 	ax.set_xlabel(params['x-label'])
 	ax.grid(False)
