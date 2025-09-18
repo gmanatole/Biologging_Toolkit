@@ -6,7 +6,10 @@ import numpy as np
 from typing import Union, List
 import netCDF4 as nc
 from sklearn.model_selection import StratifiedKFold
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.inspection import permutation_importance
 from Biologging_Toolkit.utils.whale_utils import successive_detections, sliding_window_sum
 
 class Whales():
@@ -154,6 +157,7 @@ class Whales():
                 chla_var = 'CHLA'
             else :
                 chla_var = 'CHLA_ADJUSTED'
+            #chla_var, temp_var, sal_var = 'CHLA', 'TEMP', 'PSAL'
             temp = ctd_ds[temp_var][:].data
             temp[ctd_ds[temp_var][:].mask] = np.nan
             sal = ctd_ds[sal_var][:].data
@@ -170,46 +174,46 @@ class Whales():
             sal_ctd, sal_surface = [], []
             chla_ctd, chla_surface = [], []
             for temp_profile, sal_profile, chla_profile in zip(temp, sal, chla) :
-                try:
-                    temp_ctd.append(np.nanmean(temp_profile))
-                    temp_surface.append(temp_profile[10])
-                    sal_ctd.append(np.nanmean(sal_profile))
-                    sal_surface.append(sal_profile[10])
-                    chla_ctd.append(np.nanmean(chla_profile))
-                    chla_surface.append(chla_profile[10])
-                except ValueError:
-                    temp_ctd.append(np.nan)
-                    temp_surface.append(np.nan)
-                    sal_ctd.append(np.nan)
-                    sal_surface.append(np.nan)
-                    chla_ctd.append(np.nan)
-                    chla_surface.append(np.nan)
+                #    try:
+                temp_ctd.append(np.nanmean(temp_profile))
+                temp_surface.append(temp_profile[10])
+                sal_ctd.append(np.nanmean(sal_profile))
+                sal_surface.append(sal_profile[10])
+                chla_ctd.append(np.nanmean(chla_profile))
+                chla_surface.append(chla_profile[10])
+            #    except ValueError:
+            #        temp_ctd.append(np.nan)
+            #        temp_surface.append(np.nan)
+            #        sal_ctd.append(np.nan)
+            #        sal_surface.append(np.nan)
+            #        chla_ctd.append(np.nan)
+            #        chla_surface.append(np.nan)
             temp_df = pd.DataFrame({'time':ctd_time, 'temp_ctd':temp_ctd, 'temp_surface':temp_surface,
                                     'sal_ctd':sal_ctd, 'sal_surface':sal_surface, 'chla_ctd':chla_ctd, 'chla_surface':chla_surface})
             temp_df['date'] = pd.to_datetime(temp_df['time'], unit='s').dt.date
             temp_df = temp_df.groupby('date').agg('mean').reset_index()
             self.daily[depid] = pd.merge(self.daily[depid], temp_df[['date', 'temp_ctd', 'temp_surface', 'sal_ctd', 'sal_surface', 'chla_ctd', 'chla_surface']],
                                          on='date', how='left', suffixes = ("_old", None))
-            self.daily[depid] = self.daily[depid][[c for c in self.daily[depid].columns if not c.endswith("_old")]]
-            _temp = self.daily[depid]['temp'].to_numpy()
-            _sal = self.daily[depid]['sal'].to_numpy()
-            _surf_temp = self.daily[depid]['surface_temp'].to_numpy()
-            _surf_sal = self.daily[depid]['surface_sal'].to_numpy()
-            temp_ctd = self.daily[depid]['temp_ctd'].to_numpy()
-            sal_ctd = self.daily[depid]['sal_ctd'].to_numpy()
-            surf_temp_ctd = self.daily[depid]['temp_surface'].to_numpy()
-            surf_sal_ctd = self.daily[depid]['sal_surface'].to_numpy()
-            try :
-                _temp[~np.isnan(temp_ctd)] = temp_ctd[~np.isnan(temp_ctd)]
-                _sal[~np.isnan(sal_ctd)] = sal_ctd[~np.isnan(sal_ctd)]
-                _surf_temp[~np.isnan(surf_temp_ctd)] = surf_temp_ctd[~np.isnan(surf_temp_ctd)]
-                _surf_sal[~np.isnan(surf_sal_ctd)] = surf_sal_ctd[~np.isnan(surf_sal_ctd)]
-            except :
-                pass
-            self.daily[depid]['temperature'] = _temp
-            self.daily[depid]['salinity'] = _sal
-            self.daily[depid]['surface_temperature'] = _surf_temp
-            self.daily[depid]['surface_salinity'] = _surf_sal
+            #self.daily[depid] = self.daily[depid][[c for c in self.daily[depid].columns if not c.endswith("_old")]]
+            #_temp = self.daily[depid]['temp'].to_numpy()
+            #_sal = self.daily[depid]['sal'].to_numpy()
+            #_surf_temp = self.daily[depid]['surface_temp'].to_numpy()
+            #_surf_sal = self.daily[depid]['surface_sal'].to_numpy()
+            #temp_ctd = self.daily[depid]['temp_ctd'].to_numpy()
+            #sal_ctd = self.daily[depid]['sal_ctd'].to_numpy()
+            #surf_temp_ctd = self.daily[depid]['temp_surface'].to_numpy()
+            #surf_sal_ctd = self.daily[depid]['sal_surface'].to_numpy()
+            #try :
+            #    _temp[~np.isnan(temp_ctd)] = temp_ctd[~np.isnan(temp_ctd)]
+            #    _sal[~np.isnan(sal_ctd)] = sal_ctd[~np.isnan(sal_ctd)]
+            #    _surf_temp[~np.isnan(surf_temp_ctd)] = surf_temp_ctd[~np.isnan(surf_temp_ctd)]
+            #    _surf_sal[~np.isnan(surf_sal_ctd)] = surf_sal_ctd[~np.isnan(surf_sal_ctd)]
+            #except :
+            #    pass
+            #self.daily[depid]['temperature'] = _temp
+            #self.daily[depid]['salinity'] = _sal
+            #self.daily[depid]['surface_temperature'] = _surf_temp
+            #self.daily[depid]['surface_salinity'] = _surf_sal
         if save :
             with open(os.path.join(save_path, f'daily_pool.pkl'), 'wb') as f:
                 pickle.dump(self.daily, f)
@@ -246,7 +250,7 @@ class Whales():
         ind_var : independant variables / column names to base regression on
         """
         X = pd.DataFrame(pd.concat((self.daily[dep][ind_var] for dep in depids)).reset_index(drop = True))
-        y = pd.concat((self.daily[dep][['baleen', 'delphinid', 'spermwhale']] for dep in depids)).reset_index(drop = True)
+        y = pd.concat((self.daily[dep][['baleen', 'spermwhale', 'delphinid']] for dep in depids)).reset_index(drop = True)
         combined = pd.concat([X, y], axis=1)
         combined = combined.dropna().reset_index(drop = True)
         X = combined[X.columns]
@@ -254,7 +258,7 @@ class Whales():
         y[y > 0] = 1
         skf = StratifiedKFold(n_splits=4)
         y_pred = y.copy()
-        for j, _class in enumerate(['baleen','delphinid','spermwhale']):
+        for j, _class in enumerate(['baleen','spermwhale','delphinid']):
             for i, (train_index, test_index) in enumerate(skf.split(np.zeros(len(X)), y[_class])):
                 X_train, X_test = X.loc[train_index], X.loc[test_index]
                 y_train, y_test = y.loc[train_index], y.loc[test_index]
@@ -263,9 +267,12 @@ class Whales():
                 logreg = LogisticRegression(class_weight='balanced').fit(X_train, y_train[_class])
                 pred = logreg.predict(X_test)
                 y_pred.loc[test_index, _class] = pred
-        self.balreg = LogisticRegression(class_weight='balanced').fit(X, y['baleen'])
-        self.spermreg = LogisticRegression(class_weight='balanced').fit(X, y['spermwhale'])
-        self.delreg = LogisticRegression(class_weight='balanced').fit(X, y['delphinid'])
+        try : self.balreg = LogisticRegression(class_weight='balanced').fit(X, y['baleen'])
+        except : print('Baleen whale error')
+        try : self.spermreg = LogisticRegression(class_weight='balanced').fit(X, y['spermwhale'])
+        except : print('Spermwhale error')
+        try : self.delreg = LogisticRegression(class_weight='balanced').fit(X, y['delphinid'])
+        except : print('Delphinid error')
         return y, y_pred, X
 
     def logistic_regression(self, depids, ind_var = ['jerk','flash'], ref = 'label'):
@@ -304,8 +311,36 @@ class Whales():
         self.delreg = LogisticRegression(class_weight='balanced').fit(X, y['delphinid'])
         return y_label, y_pred, X_label
 
-    def random_forest(self, depids, ind_var = ['jerk','flash']):
-        pass
+    def random_forest(self, depids, ind_var = ['jerk','flash'], ref = 'label'):
+        X = pd.concat((self.daily[dep][ind_var] for dep in depids)).reset_index(drop=True)
+        y = pd.concat((self.daily[dep][['baleen', 'delphinid', 'spermwhale']] for dep in depids)).reset_index(drop=True)
+        y[y > 0] = 1
+        y_pred, y_label, X_label = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        for i in range(4):
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
+            rf = RandomForestClassifier(n_estimators=500, random_state=0)
+            rf.fit(X_train, y_train['baleen'])
+            balpred = rf.predict(X_test)
+            result = permutation_importance(rf, X_test, y_test['baleen'], n_repeats=10, random_state=0)
+            perm_importance = pd.Series(result.importances_mean, index=X.columns)
+            print(perm_importance.sort_values(ascending=False))
+            rf = RandomForestClassifier(n_estimators=500, random_state=0)
+            rf.fit(X_train, y_train['spermwhale'])
+            result = permutation_importance(rf, X_test, y_test['spermwhale'], n_repeats=10, random_state=0)
+            spermpred = rf.predict(X_test)
+            perm_importance = pd.Series(result.importances_mean, index=X.columns)
+            print(perm_importance.sort_values(ascending=False))
+            rf = RandomForestClassifier(n_estimators=500, random_state=0)
+            rf.fit(X_train, y_train['delphinid'])
+            delpred = rf.predict(X_test)
+            result = permutation_importance(rf, X_test, y_test['delphinid'], n_repeats=10, random_state=0)
+            perm_importance = pd.Series(result.importances_mean, index=X.columns)
+            print(perm_importance.sort_values(ascending=False))
+            y_label = pd.concat((y_label, y_test))
+            X_label = pd.concat((X_label, X_test))
+            y_pred = pd.concat(
+                (y_pred, pd.DataFrame({'baleen': balpred, 'spermwhale': spermpred, 'delphinid': delpred})))
+        return y_label, y_pred, X_label
 
     def get_successive_detections(self):
         for key in self.annotations.keys():
