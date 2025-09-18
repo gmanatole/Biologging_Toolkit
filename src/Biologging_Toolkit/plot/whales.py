@@ -171,7 +171,8 @@ def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
     regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
     colors = ['deeppink', 'gold', 'magenta']
     features = {'bathy':'bathymetry','jerk':'number of jerks', 'flash':'number of jerks','temp':'temperature',
-                'surface_temp':'surface temperature'}
+                'surface_temp':'surface temperature', 'temp_ctd':'temperature', 'chla_ctd':'Chlorophyll-a',
+                'sal_ctd':'salinity', 'surface_temperature':'surface temperature'}
     if X_test.shape[1] == 2 :
         fig, ax = plt.subplots(2, 3, figsize = (15,11))
         for i, (feature, fixed) in enumerate(zip(['flash','jerk'],['jerk','flash'])) :
@@ -203,6 +204,43 @@ def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
         fig.savefig(os.path.join(save_path, 'Logistic_regression_fits.pdf'))
     fig.show()
 
+def combined_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
+    regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
+    #colors = ['deeppink', 'gold', 'navy']
+    features = {'bathy':'bathymetry','jerk':'number of jerks', 'flash':'number of flashes','temp':'temperature',
+                'surface_temp':'surface temperature', 'temp_ctd':'temperature', 'chla_ctd':'chlorophyll-a',
+                'sal_ctd':'salinity', 'surface_temperature':'surface temperature', 'salinity':'salinity',
+                'surface_salinity':'surface salinity'}
+    colors = ['turquoise','navy', 'gold']
+    if X_test.shape[1] == 2 :
+        fig, ax = plt.subplots(2, 3, figsize = (15,11))
+        for i, (feature, fixed) in enumerate(zip(['flash','jerk'],['jerk','flash'])) :
+            ax[i, 0].set_ylabel("Predicted Probability")
+            feature_range = np.linspace(X_test[feature].min(), X_test[feature].max(), 300)
+            fixed_mean = X_test[fixed].mean()
+            X_plot = pd.DataFrame({'jerk': feature_range, 'flash': fixed_mean})
+            for j, _class in enumerate(['baleen','delphinid','spermwhale']) :
+                if i == 0 :
+                    ax[i, j].set_title(f'{_class.capitalize()} prediction')
+                probs = getattr(whale, regression[_class]).predict_proba(X_plot)[:, 1]
+                ax[i,j].plot(feature_range, probs, c = colors[j])
+                ax[i,j].set_xlabel(f"Average {features[feature]} per dive")
+                ax[i,j].scatter(X_test[feature], y_pred.delphinid, c = colors[j], edgecolor = 'gray', alpha = 0.9)
+                ax[i,j].grid(True)
+    elif X_test.shape[1] == 1 :
+        fig, ax = plt.subplots(figsize = (4,4))
+        ax.set_ylabel("Predicted Probability")
+        feature_range = np.linspace(X_test.min(), X_test.max(), 300)
+        for j, (_class, _class_name) in enumerate(zip(['spermwhale','baleen', 'delphinid'], ['spermwhale','baleen whale','delphinid'])) :
+            probs = getattr(whale, regression[_class]).predict_proba(feature_range)[:, 1]
+            ax.plot(feature_range, probs, c = colors[j])
+            ax.set_xlabel(f"Average {features[X_test.columns[0]]} per dive")
+            ax.scatter(X_test, y_pred[_class] + (j-1)*0.019, c = colors[j], edgecolor = 'black', linewidth=0.2, alpha = 0.7)
+            ax.grid(True)
+    fig.tight_layout()
+    if save :
+        fig.savefig(os.path.join(save_path, 'combined_regression_fits.pdf'))
+    fig.show()
 
 def prediction_conf_matrix(y_test, y_pred, save = False, save_path = '.', type = 'logistic'):
     fig, ax = plt.subplots(1,3, figsize = (15, 5))
