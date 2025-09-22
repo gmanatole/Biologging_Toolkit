@@ -6,6 +6,8 @@ from datetime import datetime
 import pandas as pd
 import seaborn as sns
 import scipy.signal as signal
+import matplotlib.patches as mpatches
+from typing import List
 from sympy import Symbol, expand
 from sklearn.metrics import confusion_matrix
 import sklearn.metrics as metrics
@@ -359,7 +361,7 @@ def weighted_rain_accuracy_score(y_true, y_pred, label_r="R", label_n="N", weigh
     weighted_accuracy = (accuracy_r * weight_r) + (accuracy_n * weight_n)
     return weighted_accuracy
 
-def objective_DE_Custom_Nystuen_2015(trial, df, metrique = "weighted_rain"):
+def objective_DE_Custom_Nystuen_2015(trial, df, metrique = "weighted_rain", rain = ['R', 'WR']):
     params = {
         "a": trial.suggest_float("a", -35, -30),
         "b": trial.suggest_float("b", -40, -35),
@@ -370,15 +372,16 @@ def objective_DE_Custom_Nystuen_2015(trial, df, metrique = "weighted_rain"):
     }
 
     df_pred = DE_Custom_Nystuen_2015(df.copy(), **params)
+    df_pred['weather'][np.isin(df.weather, rain)] = 'R'
 
     if(metrique=="weighted_rain"):
-        score = weighted_rain_accuracy_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"])
+        score = weighted_rain_accuracy_score(df_pred["weather"], df_pred["Rain_Type_Preds"])
     elif(metrique=="rain_only"):
-        score = rain_only_accuracy_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"])
+        score = rain_only_accuracy_score(df_pred["weather"], df_pred["Rain_Type_Preds"])
     elif(metrique=="f1_score"):
-        score = f1_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"], average="weighted")
+        score = f1_score(df_pred["weather"], df_pred["Rain_Type_Preds"], average="weighted")
     elif(metrique=="accuracy_score"):
-        score = accuracy_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"])
+        score = accuracy_score(df_pred["weather"], df_pred["Rain_Type_Preds"])
     return score
 
 def DE_Ma_Nystuen_2005(df, cond_1=194, cond_2=2.35, cond_3=48, cond_4=53):
@@ -391,7 +394,7 @@ def DE_Ma_Nystuen_2005(df, cond_1=194, cond_2=2.35, cond_3=48, cond_4=53):
     df['Rain_Type_Preds'] = np.select(conditions, ["Rain"], default='No-Rain')
     return df
 
-def objective_DE_Ma_Nystuen_2005(trial, df):
+def objective_DE_Ma_Nystuen_2005(trial, df, rain = ["R", "WR"]):
     params = {
         "cond_1": trial.suggest_float("cond_1", 150, 250),
         "cond_2": trial.suggest_float("cond_2", 1.0, 4.0),
@@ -400,8 +403,8 @@ def objective_DE_Ma_Nystuen_2005(trial, df):
     }
 
     df_pred = DE_Ma_Nystuen_2005(df.copy(), **params)
-
-    score = f1_score(df_pred["Rain_Type"], df_pred["Rain_Type_Preds"], average="weighted")
+    df_pred['weather'][np.isin(df_pred.weather, rain)] = 'R'
+    score = f1_score(df_pred["weather"], df_pred["Rain_Type_Preds"], average="weighted")
     return score
 
 def DE_Nystuen_2014(
@@ -464,7 +467,7 @@ def DE_Nystuen_2014(
     df['Rain_Type_Preds'] = np.select(conditions, choices, default='None')
     return df
 
-def objective_DE_Nystuen_2014(trial, df):
+def objective_DE_Nystuen_2014(trial, df, rain = ['R', 'WR']):
     
     # params = {
     #     "offset20": trial.suggest_float("offset20", 0, 100),
@@ -513,8 +516,9 @@ def objective_DE_Nystuen_2014(trial, df):
     "cond4_min_slope_2_8": trial.suggest_float("cond4_min_slope_2_8", -40, 10),
     }
 
-    df_pred = DE_Nystuen_2014(df, **params)
-    return 1.0 - f1_score(df["Rain_Type"], df_pred["Rain_Type_Preds"], average="weighted")  
+    df_pred = DE_Nystuen_2014(df.copy(), **params)
+    df_pred['weather'][np.isin(df_pred.weather, rain)] = 'R'
+    return 1.0 - f1_score(df["weather"], df_pred["Rain_Type_Preds"], average="weighted")
 
 #---------------------------#
 #           PLOT            #
@@ -523,7 +527,7 @@ def objective_DE_Nystuen_2014(trial, df):
 def plot_estimation_vs_ground_truth(df, depid, feature, rain_est):
     dates = [datetime.fromtimestamp(ts) for ts in df['begin_time']]
     plt.figure(figsize=(8,5))
-    plt.plot(dates, df[feature], label=f"Rain {"ERA5" if feature.startswith("tp") else "GPM"}")
+    plt.plot(dates, df[feature], label=f"Rain {'ERA5' if feature.startswith('tp') else'GPM'}")
     plt.plot(dates, rain_est, label=f"Rain Estimation")
 
     plt.gca().xaxis.set_major_locator(mdates.MonthLocator())  # Un marqueur au début de chaque mois
@@ -546,10 +550,10 @@ def plot_estimation_vs_ground_truth(df, depid, feature, rain_est):
 
 def plot_spl_rain(df):
     colors = {
+        "N": "#cccccc",
         "R": "#6666ff",
-        "WR": "#c27ba0",
+        "WR": "#c27ba0"
         # "W": "#28d128",
-        "N": "#cccccc"
         }
     combs = [("upwards_mean_5000","upwards_mean_15000"),
             ("upwards_mean_8000","upwards_mean_15000"),
@@ -557,7 +561,8 @@ def plot_spl_rain(df):
             ("upwards_mean_8000","slope_8000_15000")]
 
     i=0
-    fig, ax = plt.subplots(1,4,figsize=(16, 3.5))
+    fig, ax = plt.subplots(2,2,figsize=(10, 10))
+    ax = ax.flatten()
     for comb in combs:
         for weather_type, color in colors.items():
             subset = df[df['weather'] == weather_type]
@@ -565,7 +570,40 @@ def plot_spl_rain(df):
                 subset[comb[0]],
                 subset[comb[1]],
                 c=color,
-                alpha=0.5,
+                alpha=0.3,
+                label=weather_type
+            )
+
+        ax[i].set_xlabel(comb[0])
+        ax[i].set_ylabel(comb[1])
+        ax[i].legend(title="Weather")
+        i+=1
+    plt.tight_layout()
+    plt.show()
+
+def plot_spl_rain_high_wind(df):
+    colors = {
+        "N": "#cccccc",
+        "R": "#6666ff",
+        "WR": "#c27ba0"
+        # "W": "#28d128",
+        }
+    combs = [("upwards_mean_8000","upwards_mean_15000"),
+            ("upwards_mean_15000","upwards_mean_8000"),
+        ("slope_2000_8000", "slope_8000_15000"),
+            ("upwards_mean_500","slope_8000_15000")]
+
+    i=0
+    fig, ax = plt.subplots(2,2,figsize=(10, 10))
+    ax = ax.flatten()
+    for comb in combs:
+        for weather_type, color in colors.items():
+            subset = df[df['weather'] == weather_type]
+            ax[i].scatter(
+                subset[comb[0]]**2,
+                subset[comb[1]]**2,
+                c=color,
+                alpha=0.3,
                 label=weather_type
             )
 
@@ -596,7 +634,7 @@ def plot_spl_by_rain_type(df, freqs, precip_value, depid, fill=True):
     }
 
     for _, row in df.iterrows():
-        rtype = row["Rain_Type"]
+        rtype = row["weather"]
         spl_row = []
 
         for freq in freqs:
@@ -784,23 +822,20 @@ def plot_RainSourcesDifferences_scatter(depid,path, source1="tpmaxPool", source2
     plt.tight_layout()
     plt.show()
 
-def plot_classification_spl(df):
-    df = df.dropna(subset=["Rain_Type_preds", "Rain_Type"]).copy()
-
-    color_map = {"R": "royalblue", "N+WR": "lightgrey"}
+def plot_classification_spl(df, rain = ['R', 'WR']):
+    df = df.copy().dropna(subset=["Rain_Type_preds", "weather"])
     combs = [
         ("upwards_mean_5000", "upwards_mean_15000"),
         ("upwards_mean_8000", "upwards_mean_15000"),
         ("upwards_mean_8000", "slope_2000_8000"),
         ("upwards_mean_8000", "slope_8000_15000")
     ]
-
     # Préparer les sous-groupes
     groups = {
-        "True Positives": df[df["Rain_Type_preds"] == "R"],
-        "True Negatives": df[df["Rain_Type_preds"] != "R"],
-        "False Positives": df[(df["Rain_Type_preds"] == "R") & (df["Rain_Type"] != "R")],
-        "False Negatives": df[(df["Rain_Type_preds"] != "R") & (df["Rain_Type"] == "R")]
+        "True Positives": df[(df["Rain_Type_preds"] == "R") & (np.isin(df["weather"], rain))],
+        "True Negatives": df[(df["Rain_Type_preds"] != "R") & (~np.isin(df["weather"], rain))],
+        "False Positives": df[(df["Rain_Type_preds"] == "R") & (~np.isin(df["weather"], rain))],
+        "False Negatives": df[(df["Rain_Type_preds"] != "R") & (np.isin(df["weather"], rain))]
     }
 
     colors = {
@@ -831,46 +866,80 @@ def plot_classification_spl(df):
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
 
-def plot_classification_histogram(df):
-    df_r_tp = df[(df["Rain_Type"]=="R") & (df["Rain_Type_preds"]=="R")].copy()
-    df_r_tn = df[(df["Rain_Type"]=="N+WR") & (df["Rain_Type_preds"]=="N+WR")].copy()
-    df_r_fp = df[(df["Rain_Type"]=="N+WR") & (df["Rain_Type_preds"]=="R")].copy()
-    df_r_fn = df[(df["Rain_Type"]=="R") & (df["Rain_Type_preds"]=="N+WR")].copy()
+def plot_classification_histogram(df, rain = ["R", "WR"], var = 'precipitation_GPM', save = False, savepath = 'C:/Users/grosmaan/Desktop/Thèse/Chapitre2/erreur_R.pdf'):
+    names = {'lstm_cfosat':'Wind speed (m/s)', 'precipitation_GPM':'Rainfall Rate (mm/h)', 'wind_speed':'Wind speed (m/s)'}
+    df_r_tp = df[(np.isin(df["weather"], rain)) & (np.isin(df["Rain_Type_preds"], rain))].copy().reset_index()
+    df_r_tn = df[(~np.isin(df["weather"], rain)) & (~np.isin(df["Rain_Type_preds"], rain))].copy().reset_index()
+    df_r_fp = df[(~np.isin(df["weather"], rain)) & (np.isin(df["Rain_Type_preds"], rain))].copy().reset_index()
+    df_r_fn = df[(np.isin(df["weather"], rain)) & (~np.isin(df["Rain_Type_preds"], rain))].copy().reset_index()
+    if isinstance(var, str) :
+        fig, ax = plt.subplots(figsize = (5,5))
+        sns.histplot(data=df_r_fn, x=var, bins = 40,
+                     fill=True, alpha=0.6, label='False Negatives', color="red", kde=False, edgecolor=None, ax = ax)
+        sns.histplot(data=df_r_tp, x=var, bins = 20,
+                     fill=True, alpha=0.8, label='True Positives', color="navy", kde=False, edgecolor=None, ax = ax)
+        leg = fig.legend()
+        for lh in leg.legend_handles:
+            lh.set_alpha(1)
+        ax.set_xlabel(names[var])
+        ax.set_xlim(0,8)
+        ax.grid(True, linestyle="--", alpha=0.3)
+    if isinstance(var, List) :
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        for i, elem in enumerate(var) :
+            sns.histplot(data=df_r_fn, x=elem, bins = 80,
+                         fill=True, alpha=0.6, label='False Negatives', color="red", kde=False, edgecolor=None, ax = ax[i])
+            sns.histplot(data=df_r_tp, x=elem, bins = 50,
+                         fill=True, alpha=0.8, label='True Positives', color="navy", kde=False, edgecolor=None, ax = ax[i])
+            ax[i].set_xlabel(names[elem])
+            ax[i].grid(True, linestyle="--", alpha=0.3)
+            if elem == 'precipitation_GPM':
+                ax[i].set_xlim(0,6)
+        handles, labels = ax[0].get_legend_handles_labels()
+        ax[0].legend(handles, labels, loc='upper right')
+    if save:
+        fig.savefig(savepath)
 
-    sns.histplot(data=df_r_tp, x="precipitation_GPM", fill=True, alpha=0.6, label='True Positives', color="darkgray", kde=False, edgecolor=None)
-    sns.histplot(data=df_r_fn, x="precipitation_GPM", fill=True, alpha=0.6, label='False Negatives', color="red", kde=False, edgecolor=None)
-    # sns.histplot(data=df_r_tn, x="precipitation_GPM", fill=True, alpha=0.0006, label='True Negatives', color="darkorange", kde=True, edgecolor=None)
-    # sns.histplot(data=df_r_fp, x="precipitation_GPM", fill=True, alpha=0.6, label='False Positives', color = "royalblue", kde=True, edgecolor=None)
-    
-    leg = plt.legend()
-    for lh in leg.legend_handles:
-        lh.set_alpha(1)
 
-    plt.xlim(0,8)
-    plt.grid(True, linestyle="--", alpha=0.3)
-
-def plot_weather_SPL_regression(df, x = "upwards_mean_8000", y = "slope_8000_15000", height=5) :
+def plot_wind_hist(df, save=False, savepath='C:/Users/grosmaan/Desktop/Thèse/Chapitre2/wind_histogram.pdf'):
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.hist(df['wind_speed'].to_numpy()[df['precipitation_GPM'] <= 0.1], alpha=0.7, color='grey',
+            density=True, bins=100)
+    counts, bins, patches = ax.hist(df['wind_speed'].to_numpy()[(df['precipitation_GPM'] > 0.1)],
+                                    alpha=0.7, color='blue', density=True, bins=100)
+    for patch, left_edge in zip(patches, bins[:-1]):
+        if left_edge < 7:
+            patch.set_facecolor('blue')
+        else:
+            patch.set_facecolor('purple')
+    ax.set_ylabel('Density')
+    ax.set_xlabel('Wind speed (m/s)')
+    legend_handles = [
+        mpatches.Patch(color='grey', label='N'),
+        mpatches.Patch(color='blue', label='R'),
+        mpatches.Patch(color='purple', label='WR')]
+    ax.legend(handles=legend_handles, title="Categories")
+    if save :
+        fig.savefig(savepath)
+def plot_weather_SPL_regression(df, offset = 1.25, x = "upwards_mean_8000", y = "slope_8000_15000", height=5) :
     df = df.reset_index(drop=True).copy()
     polydeg = 1
     quant_val = 0.8
 
     quantile_df = pd.DataFrame({})
-    for bin in range(-55, -25, 5):
-        _df = df[(df[x] > bin) & (df[x] < bin + 5)]
+    for bin in range(-60, -15, 2):
+        _df = df[(df[x] > bin) & (df[x] < bin + 2)]
         threshold = _df[y].quantile(quant_val)
         _df.loc[_df[y] > threshold, y] = np.nan
         _df = _df.dropna(subset=[x, y])
         quantile_df = pd.concat([quantile_df, _df])
-
     model = np.poly1d(np.polyfit(quantile_df[x], quantile_df[y], polydeg))
     x_Symb = Symbol(x)
 
     palette = {
         'N': 'gray',
         'WR': 'purple',
-        'R': 'blue',
-        # 'W': 'green'
-    }
+        'R': 'blue'}
 
     g = sns.JointGrid(data=df, x=x, y=y, hue='weather', palette=weather4_colors, height=height)
 
@@ -881,7 +950,7 @@ def plot_weather_SPL_regression(df, x = "upwards_mean_8000", y = "slope_8000_150
 
     x_vals = np.linspace(df[x].min(), df[x].max(), 100)
     y_vals = model(x_vals)
-    g.ax_joint.plot(x_vals, y_vals, ':', color="black", linewidth=2)
+    g.ax_joint.plot(x_vals, y_vals + offset, ':', color="black", linewidth=2)
 
     for weather_type, color in palette.items():
         subset = df[df['weather'] == weather_type]
@@ -891,29 +960,90 @@ def plot_weather_SPL_regression(df, x = "upwards_mean_8000", y = "slope_8000_150
     g.ax_joint.set_ylabel(y, fontsize=14)
     g.ax_joint.legend(title="Weather")
 
-
     plt.show()
     print(f"{y} = {expand(model(x_Symb))}")
     a, b = model.coefficients
     print(f"y = {a} * x + {b}")
 
-def plot_confusion_matrix(df):
-    conditions = [
-        (df["precipitation_GPM"] > 0.1) & (df["wind_speed"] < 7)
-    ]
-    choices = ["R"]
-    df["Rain_Type"] = np.select(conditions, choices, default="N+WR")
+def plot_SPL_regression(df, offset = 1.25, save = False, savepath = 'C:/Users/grosmaan/Desktop/Thèse/Chapitre2/detection_method.pdf') :
+    combinations = [("upwards_mean_5000", "upwards_mean_15000"), ("upwards_mean_8000", "upwards_mean_15000"),
+                    ("upwards_mean_8000", "slope_8000_15000")]
+    x_labels = [r'PSD at 5 kHz (dB re 1 $\mu$ $Pa^2/Hz$)', r'PSD at 8 kHz (dB re 1 $\mu$ $Pa^2/Hz$)', r'PSD at 8 kHz (dB re 1 $\mu$ $Pa^2/Hz$)']
+    y_labels = [r'PSD at 15 kHz (dB re 1 $\mu$ $Pa^2/Hz$)', r'PSD at 15 kHz (dB re 1 $\mu$ $Pa^2/Hz$)', r'Slope between 8 kHz and 15 kHz (dB re 1 $\mu$ $Pa^2/Hz$)']
+    df = df.reset_index(drop=True).copy()
+    df['keep'] = 0
+    polydeg = 1
+    quant_val = 0.8
+    palette = {
+        'N': 'gray',
+        'WR': 'purple',
+        'R': 'blue'}
 
-    cm = confusion_matrix(df["Rain_Type"], df["Rain_Type_preds"], normalize="true")
+    fig, ax = plt.subplots(1,3, figsize = (15,5))
+    for i, (x, y) in enumerate(combinations[::-1]) :
+        quantile_df = pd.DataFrame({})
+        for bin in range(-50, -28, 2):
+            _df = df[(df[x] > bin) & (df[x] < bin + 2)]
+            threshold = _df[y].quantile(quant_val)
+            _df.loc[_df[y] > threshold, y] = np.nan
+            _df = _df.dropna(subset=[x, y])
+            quantile_df = pd.concat([quantile_df, _df])
 
+        model = np.poly1d(np.polyfit(quantile_df[x], quantile_df[y], polydeg))
+        x_Symb = Symbol(x)
+        x_vals = np.linspace(df[x].min(), df[x].max(), 100)
+        y_vals = model(x_vals)
+        a, b = model.coefficients
+        if i == 0:
+            df.loc[df[y] > a * df[x] + b + offset, 'keep'] = 1
+        else:
+            df.loc[df[y] < a * df[x] + b + offset, 'keep'] = 0
+            df.loc[((df[y] > a * df[x] + b + offset) & (df.keep == 1)), 'keep'] = 1
+        colors = ['grey' if v == 0 else 'green' for v in df.keep]
+        ax[i].scatter(df[x], df[y], c=colors, alpha=0.1)
+        ax[i].plot(x_vals, y_vals + offset, ':', color="black", linewidth=2, label = f'Offset of {offset}')
+        ax[i].plot(x_vals, y_vals, ':', color = 'lightgrey', linewidth = 2, label = 'No offset')
+        ax[i].set_xlabel(x_labels[::-1][i], fontsize=12)
+        ax[i].set_ylabel(y_labels[::-1][i], fontsize=12)
+        print(f"{y} = {expand(model(x_Symb))}")
+        a, b = model.coefficients
+        print(f"y = {a} * x + {b}")
+    ax[0].legend()
+    if save :
+        fig.savefig(savepath)
 
-    labels = df["Rain_Type"].unique()
+def plot_confusion_matrix(df, normalize = "true"):
+    #conditions = [
+    #    (df["precipitation_GPM"] > 0.1) & (df["wind_speed"] < 7),
+    #]
+    #choices = ["R"]
+    #df["Rain_Type"] = np.select(conditions, choices, default="N+WR")
 
+    labels = ['N', 'WR', 'R']
+    cm = confusion_matrix(df["weather"], df["Rain_Type_preds"], normalize=normalize, labels = labels)
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, cmap='Blues', xticklabels=labels, yticklabels=labels)#, fmt='d' )
+    sns.heatmap(cm*100, annot=True, fmt=".1f", cmap='Blues', xticklabels=labels, yticklabels=labels)#, fmt='d' )
     plt.xlabel("Predicted Label")
     plt.ylabel("True Label")
     plt.show()
+
+def global_confusion_matrix(df1, df2, df3, df4, save = False, savepath = 'C:/Users/grosmaan/Desktop/Thèse/Chapitre2/corr_mat_intra_inter.pdf'):
+    subtitles = ['a) Interdataset for 38.4 kHz datasets','b) Intradataset for 38.4 kHz datasets','c) Interdataset for 32 kHz datasets','d) Intradataset for 32 kHz datasets']
+    fig, ax = plt.subplots(2,2, figsize = (11, 10.5))
+    ax = ax.flatten()
+    labels = ['N', 'WR', 'R']
+    cbar_ax = fig.add_axes([.91, .3, .03, .4])
+    for i, (df, subtitle) in enumerate(zip([df1, df2, df3, df4], subtitles)) :
+        cm = confusion_matrix(df["weather"], df["Rain_Type_preds"], normalize="true", labels = labels)
+        sns.heatmap(cm*100, fmt=".1f", annot=True, cmap='Blues', xticklabels=labels, yticklabels=labels, ax = ax[i],
+                    cbar=(i == 0), cbar_ax=None if i else cbar_ax)
+        ax[i].set_xlabel(subtitle, fontsize=12, labelpad=20)
+    fig.text(0.5, 0.0, "Predicted label", ha="center", fontsize=14)
+    fig.text(0.05, 0.5, "Target label", va="center", rotation="vertical", fontsize=14)
+    plt.subplots_adjust(right=0.9, hspace=0.3, wspace=0.3)
+    if save :
+        fig.savefig(savepath)
+    fig.show()
 
 
 def plot_rain_estimation_cumulated(inst:Rain, subset = "test"):

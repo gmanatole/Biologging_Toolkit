@@ -2,7 +2,6 @@ from Biologging_Toolkit.wrapper import Wrapper
 from Biologging_Toolkit.config.config_weather import *
 from Biologging_Toolkit.utils.format_utils import *
 from Biologging_Toolkit.processing.Dives import *
-from Biologging_Toolkit.config.config_weather import *
 import numpy as np
 from typing import Union, Tuple, List
 from sklearn.model_selection import StratifiedKFold
@@ -30,14 +29,17 @@ class Rain():
 		acoustic_path : Union[str, List] = None,
 		method: str = 'Nystuen',
 		data : str = None,        
-		split_method : str = 'depid',
+		split_method : str = 'random_split',
 		nsplit : float = 0.8,
 		test_depid : Union[str, List] = 'ml17_280a',
 		df_data = "csv",
 		empirical_offset = 1.25,
-		optimised_tresh = True,
+		optimized_thresh = True,
 		frequency = 5000,
-		wind_tresh = 7
+		wind_thresh = 7,
+		rain_thresh = 0.1,
+		remove_wind = False,
+		wind_speed = 'wind_speed'
 		):
 
 		"""
@@ -48,6 +50,12 @@ class Rain():
 		self.split_method = split_method
 		self.test_depid = test_depid
 		self.ground_truth = "IMERG (GPM NASA)"
+		self.wind_speed = wind_speed
+		self.nsplit = nsplit
+		self.empirical_offset = empirical_offset
+		self.optimized_thresh = optimized_thresh
+		self.wind_thresh = wind_thresh
+		self.rain_thresh = rain_thresh
 		self.frequency = frequency
 
 		if acoustic_path :
@@ -69,20 +77,33 @@ class Rain():
 
 		self.create_df(df_data)
 
+		if remove_wind :
+			self.df = self.df[self.df.wind_speed < wind_thresh]
 		self.calculate_and_add_slope(2000,8000)
 		self.calculate_and_add_slope(8000,15000)
 
+	def forward(self):
 		conditions = [
-			(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] < wind_tresh),
-			(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] >= wind_tresh),
+			(self.df["precipitation_GPM"] > self.rain_thresh) & (self.df[self.wind_speed] < self.wind_thresh),
+			(self.df["precipitation_GPM"] > self.rain_thresh) & (self.df[self.wind_speed] >= self.wind_thresh),
 		]
 		choices = ["R", "WR"]
 		self.df["weather"] = np.select(conditions, choices, default="N")
-		
-		self.classify_rain(offset=empirical_offset, optimised_tresh=optimised_tresh)
-		
+
+		if self.split_method == 'depid' :
+			self.df["Rain_Type_preds"] = np.nan
+			for _depid in self.depid :
+				train_split, test_split = get_train_test_split(self.df.fns.to_numpy(), self.df.index.to_numpy(), self.df.depid.to_numpy(), method = self.split_method, test_depid = _depid)
+				self.train_split = train_split[1]
+				self.test_split = test_split[1]
+				self.classify_rain()
+		else :
+			self.train_split = list(self.df.index)
+			self.test_split = list(self.df.index)
+			self.classify_rain()
+
 		self.df_r = self.df.loc[self.df["Rain_Type_preds"]=="R"].copy()
-		self.df_r = self.df_r.dropna(subset = ['precipitation_GPM', f"upwards_mean_{frequency}"])
+		self.df_r = self.df_r.dropna(subset = ['precipitation_GPM', f"upwards_mean_{self.frequency}"])
 		self.df_r = self.df_r.reset_index(drop=True)
 
 		if self.split_method == 'depid':
@@ -90,57 +111,54 @@ class Rain():
 			self.train_split = train_split[1]
 			self.test_split = test_split[1]
 		else :
-			self.train_split, self.test_split = get_train_test_split(self.df_r.fns.to_numpy(), self.df_r.index.to_numpy(), self.df_r.depid.to_numpy(), method = split_method, split = nsplit)
+			self.train_split, self.test_split = get_train_test_split(self.df_r.fns.to_numpy(), self.df_r.index.to_numpy(), self.df_r.depid.to_numpy(), method = self.split_method, split = self.nsplit)
 		self.popt, self.rain_model_stats = {}, {}
 
 
-	def classify_rain(self, offset = 1.25, optimised_tresh=False):
+	def classify_rain(self):
 		combinations = [("upwards_mean_5000","upwards_mean_15000"),("upwards_mean_8000","upwards_mean_15000"),("upwards_mean_8000","slope_8000_15000")]
 		coefs = []
+		trainset = self.df.loc[self.train_split]
 		for comb in combinations:
-
 			polydeg = 1
 			quant_val = 0.8
-
 			quantile_df = pd.DataFrame({})
 			for bin in range(-55, -25, 5):
-				_df = self.df[(self.df[comb[0]] > bin) & (self.df[comb[0]] < bin + 5)]
+				_df = trainset[(trainset[comb[0]] > bin) & (trainset[comb[0]] < bin + 5)]
 				threshold = _df[comb[1]].quantile(quant_val)
 				_df.loc[_df[comb[1]] > threshold, comb[1]] = np.nan
 				_df = _df.dropna(subset=[comb[0], comb[1]])
 				quantile_df = pd.concat([quantile_df, _df])
-
 			model = np.poly1d(np.polyfit(quantile_df[comb[0]], quantile_df[comb[1]], polydeg))
 			x_Symb = Symbol(comb[1])
-
-			x_vals = np.linspace(self.df[comb[1]].min(), self.df[comb[1]].max(), 100)
+			x_vals = np.linspace(trainset[comb[1]].min(), trainset[comb[1]].max(), 100)
 			y_vals = model(x_vals)
-			
 			a, b = model.coefficients
 			coefs.append((comb[0], comb[1], a, b))
 
-		if optimised_tresh:
+		testset = self.df.loc[self.test_split]
+		if self.optimized_thresh:
 			conditions = [
-				(self.df[coefs[0][1]]>coefs[0][2]*self.df[coefs[0][0]] +coefs[0][3]+offset/2) & 
-				(self.df[coefs[1][1]]>coefs[1][2]*self.df[coefs[1][0]] +coefs[1][3]+offset) & 
-				(self.df[coefs[2][1]]>coefs[2][2]*self.df[coefs[2][0]] +coefs[2][3]+offset/4) 
+				(testset[coefs[0][1]]>coefs[0][2]*testset[coefs[0][0]] +coefs[0][3]+self.empirical_offset/2) &
+				(testset[coefs[1][1]]>coefs[1][2]*testset[coefs[1][0]] +coefs[1][3]+self.empirical_offset) &
+				(testset[coefs[2][1]]>coefs[2][2]*testset[coefs[2][0]] +coefs[2][3]+self.empirical_offset/4)
 			]
 		else :
 			conditions = [
-				(self.df[coefs[0][1]]>coefs[0][2]*self.df[coefs[0][0]] +coefs[0][3]+offset) & 
-				(self.df[coefs[1][1]]>coefs[1][2]*self.df[coefs[1][0]] +coefs[1][3]+offset) & 
-				(self.df[coefs[2][1]]>coefs[2][2]*self.df[coefs[2][0]] +coefs[2][3]+offset) 
+				(testset[coefs[0][1]]>coefs[0][2]*testset[coefs[0][0]] +coefs[0][3]+self.empirical_offset) &
+				(testset[coefs[1][1]]>coefs[1][2]*testset[coefs[1][0]] +coefs[1][3]+self.empirical_offset) &
+				(testset[coefs[2][1]]>coefs[2][2]*testset[coefs[2][0]] +coefs[2][3]+self.empirical_offset)
 			]
 
 		choices = ["R"]
-		self.df["Rain_Type_preds"] = np.select(conditions, choices, default="N+WR")
+		self.df.loc[self.test_split, "Rain_Type_preds"] = np.select(conditions, choices, default="N")
 
-		conditions = [
-			(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] < 7)
-		]
-		choices = ["R"]
+		#conditions = [
+		#	(self.df["precipitation_GPM"] > 0.1) & (self.df["wind_speed"] < self.wind_thresh),
+		#]
+		#choices = ["R"]
 
-		self.df["Rain_Type"] = np.select(conditions, choices, default="N+WR")
+		#self.df["Rain_Type"] = np.select(conditions, choices, default="N+WR")
 
 	def calculate_and_add_slope(self, freq1, freq2):
 		slope_column_name = f"slope_{freq1}_{freq2}"
@@ -181,7 +199,7 @@ class Rain():
 					
 					time = npz_data["time"]
 					precip = dive["precipitation_GPM"]
-					ws = dive["wind_speed"]
+					ws = dive[self.wind_speed]
 					upwards_mean_15000 = npz_data["spectro"].T[480]
 					upwards_mean_8000 = npz_data["spectro"].T[256]
 					upwards_mean_5000 = npz_data["spectro"].T[160]
@@ -232,7 +250,7 @@ class Rain():
 		else :
 			raise Exception("/!\ df_data must be 'csv' or 'npz") 
 		
-		self.df = df
+		self.df = df.reset_index()
 	
 	def estimate_bibliography(self, offset=100):
 		estimation = self.method['function'](self.df_r[self.method['frequency']],self.method['parameters']["a"],self.method['parameters']["b"],offset)
