@@ -207,7 +207,7 @@ def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
 def combined_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
     regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
     #colors = ['deeppink', 'gold', 'navy']
-    features = {'bathy':'bathymetry','jerk':'number of jerks', 'flash':'number of flashes','temp':'temperature',
+    features = {'bathy':'bathymetry','jerk':'number of PrCAs', 'flash':'number of flashes','temp':'temperature',
                 'surface_temp':'surface temperature', 'temp_ctd':'temperature', 'chla_ctd':'chlorophyll-a',
                 'sal_ctd':'salinity', 'surface_temperature':'surface temperature', 'salinity':'salinity',
                 'surface_salinity':'surface salinity'}
