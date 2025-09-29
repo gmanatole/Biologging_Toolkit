@@ -18,6 +18,8 @@ import cartopy.io.shapereader as shpreader
 from sklearn import metrics
 from Biologging_Toolkit.utils.whale_utils import load_annotation_data
 from Biologging_Toolkit.applications.Whales import Whales
+from matplotlib.ticker import MaxNLocator
+from sklearn.inspection import PartialDependenceDisplay
 
 def histogram_detections(ker, arg, annotation_path, idx = 0):
     ker_drift, idx_ker, data_ker, arg_drift, idx_arg, data_arg = load_annotation_data(ker, arg, annotation_path)
@@ -167,10 +169,37 @@ def pairplot(w, vars = ['jerk'], arg = [], ker = [], save = False, save_path = '
         g.tight_layout()
         g.savefig(os.path.join(save_path, 'var_pairplot.pdf'))
 
+def plot_partial_laws(y_pred, X_test, whale, group = 'baleen', save = False, save_path = '.') :
+    regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
+    colors = {'baleen':'darkblue', 'delphinid':'gold', 'spermwhale':'turquoise'}
+    features = {'bathy':'bathymetry (m)','jerk':'number of PrCAs', 'flash':'number of flashes','temp':'temperature (°C)',
+                'surface_temp':'surface temperature (°C)', 'temp_ctd':'temperature (°C)', 'chla_ctd':r'Chlorophyll-a ($mg/m^3$)',
+                'sal_ctd':'salinity (PSU)', 'surface_temperature':'surface temperature (°C)',
+                'salinity':'salinity (PSU)', 'temperature':'temperature (°C)', 'surface_salinity':'surface salinity (PSU)'}
+    variables = list(X_test.columns)
+    fig, ax = plt.subplots(1, len(variables), figsize = (3*len(variables), 3.3))
+    for i, feature in enumerate(variables) :
+        feature_range = np.linspace(X_test[feature].min(), X_test[feature].max(), 300)
+        med = X_test.loc[:, variables[:i] + variables[i+1:]].median()
+        X_plot = pd.DataFrame({**{feature: feature_range}, **{_var:np.full(300, float(med[_var])) for _var in variables[:i]+variables[i+1:]}})
+        X_plot = X_plot[variables]
+        probs = getattr(whale, regression[group]).predict_proba(X_plot)
+        ax[i].plot(feature_range, probs[:, 1], c=colors[group], linewidth = 2)
+        ax[i].set_xlabel(f"Average {features[feature]}\nper dive", fontsize=14)
+        ax[i].xaxis.set_major_locator(MaxNLocator(nbins=4))
+        ax[i].tick_params(axis='both', labelsize=12)
+        #ax[i].scatter(X_test[feature], y_pred[group], c = colors[group], edgecolor = 'gray', alpha = 0.9)
+        ax[i].grid(True)
+    ax[0].set_ylabel("Predicted Probability", fontsize=14)
+    fig.tight_layout()
+    if save :
+        fig.savefig(os.path.join(save_path, f'partial_{group}.pdf'), bbox_inches='tight', pad_inches=0.3)
+    fig.show()
+
 def plot_logistic_laws(y_pred, X_test, whale, save = False, save_path = '.'):
     regression = {'baleen':'balreg', 'delphinid':'delreg', 'spermwhale':'spermreg'}
     colors = ['deeppink', 'gold', 'magenta']
-    features = {'bathy':'bathymetry','jerk':'number of jerks', 'flash':'number of jerks','temp':'temperature',
+    features = {'bathy':'bathymetry','jerk':'number of PrCAs', 'flash':'number of flashes','temp':'temperature',
                 'surface_temp':'surface temperature', 'temp_ctd':'temperature', 'chla_ctd':'Chlorophyll-a',
                 'sal_ctd':'salinity', 'surface_temperature':'surface temperature'}
     if X_test.shape[1] == 2 :
