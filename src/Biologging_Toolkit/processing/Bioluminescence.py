@@ -61,8 +61,8 @@ class Bioluminescence(Wrapper):
 		if 'flash' not in self.ds.variables:
 			flash_dim = self.ds.createDimension('feature', 3)
 			flash = self.ds.createVariable('flash', np.float64, ('time', 'feature'))
-			flash.long_name = f'Maximum flash intensity, duration and number of flashes'
-			flash.feature_description = '0: intensity, 1: duration, 2: number of flashes'
+			flash.long_name = f'Maximum flash duration, intensity and number of flashes'
+			flash.feature_description = '0: duration, 1: intensity, 2: number of flashes'
 			flash.orig_samplerate = self.samplerate
 			flash.threshold = self.threshold
 			flash.intensity_comment = 'Maximum intensity of flashes'
