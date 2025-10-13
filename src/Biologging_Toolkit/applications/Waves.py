@@ -39,7 +39,7 @@ class Waves(Dives) :
 			self.P = data['P'][:].data
 			self.A = data['A'][:].data
 			length = np.max([self.A.shape[1], len(self.P)])
-			self.sens_time = datetime.strptime(data.dephist_deploy_datetime_start, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
+			self.sens_time = datetime.strptime(data.dephist_device_datetime_start, '%Y/%m/%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp() + np.arange(0, length/self.samplerate, np.round(1/self.samplerate,2))
 			self.A_cal_poly = data['A'].cal_poly[:].reshape(2, 3)
 			self.A_cal_map = data['A'].cal_map[:].reshape(3, 3)
 		elif data['A'] is not None and data['time'] is not None :
