@@ -23,8 +23,8 @@ def norm(X):
 def angular_average(angles):
     x_coords = [np.cos(angle) for angle in angles]
     y_coords = [np.sin(angle) for angle in angles]
-    x_mean = np.nansum(x_coords) / len(angles)
-    y_mean = np.nansum(y_coords) / len(angles)
+    x_mean = np.nansum(x_coords) / np.min([len(angles), ~np.isnan(x_coords).sum()])
+    y_mean = np.nansum(y_coords) / np.min([len(angles), ~np.isnan(y_coords).sum()])
     average_angle = np.arctan2(y_mean, x_mean)
     if average_angle < 0:
         average_angle += 2 * np.pi
@@ -36,11 +36,12 @@ def modulo_pi(angle):
     return angle
 
 def angular_correlation(x,y):
-    dpos = x - y
-    dneg = x + y
-    pos_corr = np.sqrt((np.nansum(np.cos(dpos))**2 + np.nansum(np.sin(dpos))**2))/len(dpos)
-    neg_corr = np.sqrt((np.nansum(np.cos(dneg))**2 + np.nansum(np.sin(dneg))**2))/len(dneg)
-    return pos_corr, neg_corr
+	mask = ~np.isnan(x) & ~np.isnan(y)
+	dpos = x[mask] - y[mask]
+	dneg = x[mask] + y[mask]
+	pos_corr = np.sqrt((np.nansum(np.cos(dpos))**2 + np.nansum(np.sin(dpos))**2))/len(dpos)
+	neg_corr = np.sqrt((np.nansum(np.cos(dneg))**2 + np.nansum(np.sin(dneg))**2))/len(dneg)
+	return pos_corr, neg_corr
 
 def coa(lat, lon):
 	return np.sin(lat[1])*np.sin(lat[0]) + np.cos(lat[0])*np.cos(lat[1])*(np.cos((lon[1]-lon[0])))

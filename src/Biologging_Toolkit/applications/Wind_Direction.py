@@ -81,14 +81,23 @@ class WindDirection(Wrapper) :
 		self.orientation_raw = _rot
 		self.surface_time = _time
 		self.orientation_conv = pd.Series(_rot).rolling(window = 15, min_periods = 5, center = True).median().to_numpy()
-	    
-	def get_correlation(self) :
+
+	def filter_wind_speed(self, threshold = 12):
+		_ws = np.sqrt(self.ds['v10'][:].data**2 +  self.ds['u10'][:].data**2)
+		ws = interp1d(self.ds['time'], _ws, bounds_error = False)(self.surface_time)
+		self.orientation_conv_filtered = self.orientation_conv.copy()
+		self.orientation_conv_filtered[ws < threshold] = np.nan
+
+	def get_correlation(self, filtered = False) :
 		wind_orientation = interp1d(self.ds['time'][:].data, np.arctan2(self.ds['v10'][:].data, self.ds['u10'][:].data), bounds_error = False)(self.surface_time)
 		#y1 = interp(aux.time, modulo_pi(aux.mdts*np.pi/180+np.pi/2), bounds_error = False)(_time)
 		#y2 = interp(aux.time, modulo_pi(aux.mdww*np.pi/180+np.pi/2), bounds_error = False)(_time)
 		#y3 = interp(aux.time, modulo_pi(aux.mwd*np.pi/180+np.pi/2), bounds_error = False)(_time)
 		#y4 = interp(aux.time, modulo_pi(aux.dwi*np.pi/180+np.pi/2), bounds_error = False)(_time)
-		corr = angular_correlation(self.orientation_conv, wind_orientation)
+		if filtered :
+			corr = angular_correlation(self.orientation_conv_filtered, wind_orientation)
+		else :
+			corr = angular_correlation(self.orientation_conv, wind_orientation)
 		self.positive_corr = corr[0]
 		self.negative_corr = corr[1]
 
