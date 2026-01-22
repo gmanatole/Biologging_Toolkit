@@ -24,7 +24,7 @@ def make_cds_file(personnal_access_token, path):
 	os.system(cmd1)
 	os.system(cmd2)
 	'''
-	cmd1 = "echo url: https://cds-beta.climate.copernicus.eu/api >> .cdsapirc"
+	cmd1 = "echo url: https://cds.climate.copernicus.eu/api >> .cdsapirc"
 	cmd2 = "echo key: {} >> .cdsapirc".format(personnal_access_token)
 	os.system(cmd1)
 	os.system(cmd2)
@@ -75,7 +75,6 @@ def return_cdsbeta(filename, variables, years, months, days, hours, area):
 		'download_format': 'zip',
 		'data_format': 'netcdf',
 		}
-
 	c.retrieve(dataset, request, filename)
 
 
