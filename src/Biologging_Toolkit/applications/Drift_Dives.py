@@ -182,7 +182,7 @@ class DriftDives(Wrapper) :
 		----------
 		analysis_length :  Length (in s) of sliding window for vertical speed smoothing.
 		"""
-		idx_bound = int(analysis_length / self.ds.sampling_rate / 2)
+		idx_bound = int(analysis_length * self.ds.sampling_rate / 2)
 		dive_type = np.full(len(self.ds['depth'][:]), 0)
 		pbar = tqdm(total = len(dive_type)-2*idx_bound-1, position = 0, leave = True)
 		pbar.set_description('Iterating through dataset')
@@ -212,7 +212,7 @@ class DriftDives(Wrapper) :
 		_vertical_speed[:len(_vspeed)] = _vspeed
 
 		#Apply smoothing window
-		speed_bound = int(np.ceil(smoothing_length / 2 / self.ds.sampling_rate))
+		speed_bound = int(np.ceil(smoothing_length / 2 * self.ds.sampling_rate))
 		pbar = tqdm(total = len(vertical_speed)-2*speed_bound-1, position = 0, leave = True)
 		pbar.set_description('Applying smoothing window')
 		for j in range(speed_bound, len(vertical_speed) - speed_bound - 1) :
@@ -221,7 +221,7 @@ class DriftDives(Wrapper) :
 
 		# Find drift dives
 		dive_type = np.full(len(self.ds['depth'][:]), 0)
-		drift_bound = int(np.ceil(drift_length / self.ds.sampling_rate / 2))
+		drift_bound = int(np.ceil(drift_length * self.ds.sampling_rate / 2))
 		pbar = tqdm(total = len(dive_type)-2*drift_bound-1,position = 0, leave = True)
 		pbar.set_description('Finding drift_dives')
 		for k in range(drift_bound, len(dive_type)-drift_bound-1) :

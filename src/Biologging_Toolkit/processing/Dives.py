@@ -4,6 +4,7 @@ from scipy.signal import find_peaks
 from scipy.interpolate import interp1d
 import netCDF4 as nc
 import os
+from tqdm import tqdm
 import pandas as pd
 from Biologging_Toolkit.utils.format_utils import *
 
@@ -152,7 +153,7 @@ class Dives(Wrapper):
 	@staticmethod
 	def get_bottom_dives(depth, *, prec = 0.10):
 		bottom, properties = find_peaks(depth, height = 200)
-		for peak in bottom :
+		for peak in tqdm(bottom) :
 			i,j = 0,0
 			while (peak+j+2 <= len(depth)) and ((abs(depth[peak] - depth[peak-i]) <= prec*depth[peak]) or (abs(depth[peak] - depth[peak+j]) <= prec*depth[peak])) :
 				if (abs(depth[peak] - depth[peak-i]) <= prec*depth[peak]) or (abs(depth[peak] - depth[peak-i-1]) <= prec*depth[peak]):
