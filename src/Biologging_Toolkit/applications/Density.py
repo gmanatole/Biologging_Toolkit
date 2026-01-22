@@ -102,7 +102,7 @@ class Density(DriftDives) :
             mask_dive = self.descent[dives == dive]
             descent_profile = profile[mask_dive]
             try:
-                Udesc.append(np.max(np.diff(descent_profile)))
+                Udesc.append(np.max(np.diff(descent_profile))*self.ds.sampling_rate)
             except:
                 Udesc.append(np.nan)
         self.time_Udesc = np.array(time_Udesc)
