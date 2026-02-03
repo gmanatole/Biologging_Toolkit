@@ -52,7 +52,7 @@ class Density(DriftDives) :
 
     def get_drift_speed(self, method = 'inertial', sens_path = None) :
         """
-        This method computed the vertical speed during drift phases
+        This method computes the vertical speed during drift phases
         Both inertial (bank angle) or acceleration and depth can be used to detect drift phases
         The vertical speed during these detected drifts is then computed
         """
@@ -69,8 +69,9 @@ class Density(DriftDives) :
             drifts = drifts.astype(int)
         depth = self.ds['depth'][:].data
         dives = self.ds['dives'][:].data
+        elevation_angle = self.ds['elevation_angle'][:].data
         _time = self.ds['time'][:].data
-        Udrift, time_drift = [], []
+        Udrift, time_drift, ea_drift = [], [], []
         for dive in np.unique(dives):
             drift = drifts[dives == dive]
             profile = depth[dives == dive]
@@ -79,12 +80,18 @@ class Density(DriftDives) :
             phase_time = profile_time[drift == 1]
             Udrift.append(np.mean(np.diff(phase) / np.diff(phase_time)))
             time_drift.append(np.mean(phase_time))
+            ea_drift.append(np.nanmean(elevation_angle[drift][drift == 1]))
         self.Udrift = - np.array(Udrift)
         self.time_Udrift = np.array(time_drift)
+        self.ea_drift = np.array(ea_drift)
 
     def get_descent_speed(self) :
+        """
+        This method computes the maximal vertical speed during active swimming descent phases.
+        The vertical speed during these detected drifts is computed using pressure data.
+        """
         if 'descent' not in self.__dir__() :
-            ascent, descent = Dives.get_dive_direction(self.ds['depth'][:].data[::20])
+            ascent, descent = Dives.get_dive_direction(self.ds['depth'][:].data[::60//int(1/self.ds.sampling_rate)])
             _time = self.ds['time'][:].data
             f = interp1d(_time[::60//int(1/self.ds.sampling_rate)], descent, bounds_error=False)
             descent_full = f(_time)
@@ -92,21 +99,29 @@ class Density(DriftDives) :
             f = interp1d(_time[::60//int(1/self.ds.sampling_rate)], ascent, bounds_error=False)
             ascent_full = f(_time)
             self.ascent = np.round(ascent_full).astype(bool)
-        Udesc = []
-        time_Udesc = []
-        dives = self.ds['dives'][:].data
-        depth = self.ds['depth'][:].data
+        else :
+            _time = self.ds['time'][:].data
+        Udesc, time_Udesc, ea_desc = [], [], []
+        dives = self.ds['dives'][:].filled(np.nan)
+        depth = self.ds['depth'][:].filled(np.nan)
+        elevation_angle = self.ds['elevation_angle'][:].data
         for dive in np.unique(dives):
             profile = depth[dives == dive]
             time_Udesc.append(np.mean(_time[dives == dive]))
             mask_dive = self.descent[dives == dive]
+            ea_descent = elevation_angle[dives == dive]
+            ea_desc.append(np.nanmean(ea_descent[mask_dive]))
+            if (np.diff(mask_dive.astype(int)) == -1).sum() > 1 :
+                Udesc.append(np.nan)
+                continue
             descent_profile = profile[mask_dive]
             try:
                 Udesc.append(np.max(np.diff(descent_profile))*self.ds.sampling_rate)
             except:
                 Udesc.append(np.nan)
-        self.time_Udesc = np.array(time_Udesc)
-        self.Udesc = np.array(Udesc)
+        self.time_Udesc = np.array(time_Udesc, dtype=float)
+        self.Udesc = np.array(Udesc, dtype=float)
+        self.ea_desc = np.array(ea_desc, dtype=float)
 
     def get_ascent_effort(self) :
         if 'ascent' not in self.__dir__() :

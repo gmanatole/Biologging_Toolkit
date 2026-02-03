@@ -26,7 +26,7 @@ class Wrapper():
 
 		self.depid = depid
 		#self.ds_name = depid + '_acoustic' if self.__class__.__name__ == 'Acoustic' else depid + '_sens'
-		self.ds_name = depid + '_sens'
+		self.ds_name = depid + self.file_name
 		self.path = path if path else os.getcwd()
 		assert isinstance(self.depid, str), "Please specify an individual"
 

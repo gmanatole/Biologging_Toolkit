@@ -42,7 +42,7 @@ class Dives(Wrapper):
 		
 		super().__init__(
 			depid,
-			path
+			path,
         )
 
 		self.raw_path = raw_path
