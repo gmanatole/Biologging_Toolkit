@@ -2,7 +2,7 @@ import numpy as np
 from glob import glob
 import os
 import umap.umap_ as umap
-import hdbscan
+#import hdbscan
 import netCDF4 as nc
 import pandas as pd
 from tqdm import tqdm
@@ -304,7 +304,7 @@ class DriftDives(Wrapper) :
 			self.start, self.stop = np.array(start), np.array(stop)
 		project = umap.UMAP()
 		self.embed = project.fit_transform(self.X)
-		self.clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples).fit(self.embed)
+		#self.clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples).fit(self.embed)
 
 	def save_cluster(self, cluster, overwrite = False, **metadata) :
 		start = self.start[np.isin(self.clusterer.labels_, cluster)]

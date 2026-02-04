@@ -6,12 +6,11 @@ from Biologging_Toolkit.utils.format_utils import *
 
 class Wrapper():
 
-	dt : int = 3
-
 	def __init__(
 		self, 
 		depid : str = None,
 		path : str = None,
+		dt : int = 3
 	):
 		"""
 		Parameters
@@ -26,16 +25,27 @@ class Wrapper():
 
 		self.depid = depid
 		#self.ds_name = depid + '_acoustic' if self.__class__.__name__ == 'Acoustic' else depid + '_sens'
-		self.ds_name = depid + self.file_name
+		self.ds_name = depid + '_sens'
 		self.path = path if path else os.getcwd()
 		assert isinstance(self.depid, str), "Please specify an individual"
 
 		#Check if individual file already exists, if not create it
 		mode='r+' if os.path.exists(os.path.join(self.path, self.ds_name + '.nc')) else 'w'
 		self.ds = nc.Dataset(os.path.join(self.path, self.ds_name + '.nc'), mode = mode)
-		self.ds.sampling_rate = self.dt
-		self.ds.sampling_rate_units = 'Seconds'
-		self.dataset_name
+		self.dt = dt
+
+	@property
+	def dt(self) -> int:
+		return self._dt
+
+	@dt.setter
+	def dt(self, value: int):
+		if value <= 0:
+			raise ValueError("dt must be positive")
+		self._dt = value
+		if hasattr(self, "ds"):
+			self.ds.sampling_rate = 1 / self._dt
+			self.ds.sampling_rate_units = 'Hz'
 
 	@property
 	def dataset_name(self) :

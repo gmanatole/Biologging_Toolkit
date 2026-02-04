@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from scipy.interpolate import interp1d
+from scipy.signal import spectrogram
 from scipy.signal import butter, sosfilt
 from Biologging_Toolkit.utils.inertial_utils import *
 from Biologging_Toolkit.utils.format_utils import *
@@ -90,71 +91,88 @@ class Density(DriftDives) :
         This method computes the maximal vertical speed during active swimming descent phases.
         The vertical speed during these detected drifts is computed using pressure data.
         """
+        # Get descent portion of dives from Dives module
         if 'descent' not in self.__dir__() :
-            ascent, descent = Dives.get_dive_direction(self.ds['depth'][:].data[::60//int(1/self.ds.sampling_rate)])
+            ascent, descent = Dives.get_dive_direction(self.ds['depth'][:].data[::int(60/(1/self.ds.sampling_rate))])
             _time = self.ds['time'][:].data
-            f = interp1d(_time[::60//int(1/self.ds.sampling_rate)], descent, bounds_error=False)
+            f = interp1d(_time[::int(60/(1/self.ds.sampling_rate))], descent, bounds_error=False)
             descent_full = f(_time)
             self.descent = np.round(descent_full).astype(bool)
-            f = interp1d(_time[::60//int(1/self.ds.sampling_rate)], ascent, bounds_error=False)
+            f = interp1d(_time[::int(60/(1/self.ds.sampling_rate))], ascent, bounds_error=False)
             ascent_full = f(_time)
             self.ascent = np.round(ascent_full).astype(bool)
         else :
             _time = self.ds['time'][:].data
-        Udesc, time_Udesc, ea_desc = [], [], []
+        Udesc, time_Udesc = [], []
         dives = self.ds['dives'][:].filled(np.nan)
         depth = self.ds['depth'][:].filled(np.nan)
-        elevation_angle = self.ds['elevation_angle'][:].data
+        #Iterate through dives removing dives containing NaN or with two descents detected
         for dive in np.unique(dives):
             profile = depth[dives == dive]
             time_Udesc.append(np.mean(_time[dives == dive]))
             mask_dive = self.descent[dives == dive]
-            ea_descent = elevation_angle[dives == dive]
-            ea_desc.append(np.nanmean(ea_descent[mask_dive]))
+            mask_dive[np.isnan(profile)] = False
             if (np.diff(mask_dive.astype(int)) == -1).sum() > 1 :
                 Udesc.append(np.nan)
                 continue
             descent_profile = profile[mask_dive]
+            descent_profile = descent_profile[descent_profile < 350]  # Only focus on upper 350m
             try:
-                Udesc.append(np.max(np.diff(descent_profile))*self.ds.sampling_rate)
+                Udesc.append(np.max(np.diff(descent_profile)) * self.ds.sampling_rate)
             except:
                 Udesc.append(np.nan)
         self.time_Udesc = np.array(time_Udesc, dtype=float)
         self.Udesc = np.array(Udesc, dtype=float)
-        self.ea_desc = np.array(ea_desc, dtype=float)
 
     def get_ascent_effort(self) :
+        """
+        This method computes the lateral oscillation period of the individual during ascent phases
+        Lateral acceleration during ascent is isolated and the frequency components above 0.2 Hz are extracted.
+        The median of the maxima of each time bin is the final oscillation period.
+        """
         if 'ascent' not in self.__dir__() :
-            ascent, descent = Dives.get_dive_direction(self.ds['depth'][:].data[::20])
+            ascent, descent = Dives.get_dive_direction(self.ds['depth'][:].data[::int(60/(1/self.ds.sampling_rate))])
             _time = self.ds['time'][:].data
-            f = interp1d(_time[::60//int(1/self.ds.sampling_rate)], descent, bounds_error=False)
+            f = interp1d(_time[::int(60/(1/self.ds.sampling_rate))], descent, bounds_error=False)
             descent_full = f(_time)
             self.descent = np.round(descent_full).astype(bool)
-            f = interp1d(_time[::60//int(1/self.ds.sampling_rate)], ascent, bounds_error=False)
+            f = interp1d(_time[::int(60/(1/self.ds.sampling_rate))], ascent, bounds_error=False)
             ascent_full = f(_time)
             self.ascent = np.round(ascent_full).astype(bool)
+        else :
+            _time = self.ds['time'][:].data
         time_Uasc = []
         Afreq = []
-        Ae = self.ds['Ax'][:].data
-        sos = butter(N = 2, Ws = 0.3, btype = 'highpass', fs=self.ds.sampling_rate, output='sos')
+        Ae = self.ds['Ay'][:]
+        # High pass filter to remove low frequency movements
+        sos = butter(N = 2, Wn = 0.3, btype = 'highpass', fs=self.ds.sampling_rate, output='sos')
         dives = self.ds['dives'][:].data
         depth = self.ds['depth'][:].data
         for dive in np.unique(dives):
-            profile = depth[dives == dive]
+            #Ensure elephant dives deep enough to have ascent data
+            if np.nanmax(depth[dives == dive]) < 100 :
+                continue
+            _Ae = Ae[dives == dive]
             time_Uasc.append(np.mean(_time[dives == dive]))
             mask_dive = self.ascent[dives == dive]
-            ascent_profile = profile[mask_dive]
-            try:
-                _Ae = Ae[ascent_profile]
-                Ae_filt = sosfilt(sos, Ae)
-                fft = np.fft.fft(Ae_filt)
-                freq = np.fft.ffrfreq(Ae_filt)
-                Afreq.append(np.nanmax(freq[np.argmax(fft)]))
-            except:
-                Afreq.append(np.nan)
+            ascent_Ae = _Ae[mask_dive]
+            # sosfilt is not compatible with nan values, extraction of longest data segment
+            if np.isnan(ascent_Ae).sum() != 0:
+                valid = ~np.isnan(ascent_Ae)
+                edges = np.diff(np.concatenate(([0], valid.view(np.int8), [0])))
+                starts = np.where(edges == 1)[0]
+                ends = np.where(edges == -1)[0]
+                lengths = ends - starts
+                idx = np.argmax(lengths)
+                if ends[idx] - starts[idx] < 0.5 * len(ascent_Ae):
+                    continue
+                else:
+                    ascent_Ae = ascent_Ae[starts[idx]: ends[idx]]
+            Ae_filt = sosfilt(sos, ascent_Ae)
+            freq, t, Sxx = spectrogram(sosfilt(sos, Ae_filt), fs=5, nperseg=128, noverlap=60)
+            Afreq.append(np.nanmedian(freq[np.argmax(Sxx, axis = 0)]))
         self.time_Uasc = np.array(time_Uasc)
         self.Afreq = np.array(Afreq)
-
 
 
     def water_density(self) :
